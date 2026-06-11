@@ -1,0 +1,175 @@
+# Handoff — Marble Mayhem
+
+_Last updated: 2026-06-11_
+
+## Current state
+
+Single Expo + React Native + react-native-web codebase at this folder, on
+"Prototype 2.0" mechanics (25 marbles/player, 5 middle rows, MAIN_ROW
+horizontal-match-only, columns slide up/down, main row slides left/right
+with wrap, penalty marbles on chain clears in head-to-head modes,
+bidirectional gravity centered on MAIN_ROW).
+
+Test with `npm install --legacy-peer-deps` then `npm run web`
+(`expo start --web`). Board sizing is reactive via `getBoardMetrics(width)` +
+`useWindowDimensions`, so resizing the browser updates layout live.
+
+## What's done
+
+**Mobile-web optimization** (earlier session)
+- `src/constants.js`: `getBoardMetrics(windowWidth)` for responsive
+  `cellSize`/`boardPx`.
+- `App.js`: `useMobileWebSetup()` injects mobile viewport meta tags + touch
+  CSS (web-only).
+- `app.json`: added `expo.web` block (themeColor, backgroundColor,
+  display: standalone).
+- `package.json`: added `"web": "expo start --web"` script.
+- `src/screens/GameScreen.js`: board sizing prop-drilled into
+  `BoardWithControls` (incl. PanResponder gesture math).
+
+**Pause + Single-player mode** (this session — complete)
+- `src/screens/GameScreen.js`:
+  - New `paused` state + `TOGGLE_PAUSE` action; gates `COL_SLIDE`,
+    `ROW_SLIDE`, `AI_MOVE`, `SELECT_COL`, AI timer, and Time Attack timer.
+  - Header pause button (⏸/▶), keyboard 'P'/'Escape' toggles pause.
+  - New "Paused" full-screen overlay (Resume / Main Menu).
+  - New modes `'solo-time'` (60s countdown via `TICK` action,
+    `formatTime()` helper, header TIME display turns red at ≤10s) and
+    `'solo-normal'` (Endless — ends via `isBoardFull()` from `engine.js`).
+  - `createInitialState(mode)` branches for solo (single board/score,
+    `timeLeft: 60` for solo-time).
+  - `applySlide`: penalty-marble logic now wrapped in
+    `if (boards.length > 1)`; added solo-normal stuck check.
+  - Header and Boards JSX have `isSolo` branches (single board in new
+    `soloRow` style vs. two-board `boardsRow`).
+  - Game-over overlay has solo-aware branch ("⏰ TIME'S UP!" / "🔒 STUCK!"
+    + single SCORE) vs. existing P1/P2/CPU winner logic.
+  - New styles: `soloRow`, `timeWarning`.
+- `src/screens/MenuScreen.js`:
+  - New green "SOLO" mode button opens a picker modal (Time Attack /
+    Endless), navigating to `play('solo-time')` / `play('solo-normal')`.
+  - New `modeBtnSolo` style.
+
+Both files verified to parse cleanly (Babel/JSX).
+
+## Session 2026-06-10 (verification only)
+
+No code changes. Verified the codebase matches this handoff:
+`GameScreen.js` (794 lines) contains `TOGGLE_PAUSE` / `solo-time` /
+`solo-normal` logic; `MenuScreen.js` (256 lines) has the SOLO picker.
+File layout: `src/{constants.js, engine.js, screens/{GameScreen.js,
+MenuScreen.js}, components/}`.
+
+## Session 2026-06-10 (build verification)
+
+`npx expo export --platform web` succeeds — 377 modules bundle cleanly
+(665 kB), no module/syntax errors. Sandbox can't run a live browser, so this
+is as far as automated checks go; a real-device/browser playtest is still
+needed.
+
+## Session 2026-06-11 (engine fix — column-down / spawn behavior)
+
+Fixed a bug where sliding a column down when its only/topmost marble sat in
+MAIN_ROW would push that marble below MAIN_ROW, leaving MAIN_ROW empty;
+`ensureMainRowFull` then spawned a replacement directly in place, looking
+like a marble appearing out of nowhere.
+
+- `src/engine.js`:
+  - New helper `isMainRowTopmost(board, col)` — true if the MAIN_ROW marble
+    in `col` has nothing above it.
+  - New exported `canSlideDown(board, col)` — false if the column's bottom
+    cell is full, or if its MAIN_ROW marble is topmost (nothing to take its
+    place). Centralizes the down-button enabled/disabled check.
+  - `slideColumnDown` now no-ops (`moved: false`) in the topmost-marble case
+    instead of emptying MAIN_ROW.
+  - `ensureMainRowFull` now spawns new marbles at row 0 (top of column) and
+    re-runs `applyGravity`, so they fall down to MAIN_ROW realistically
+    instead of materializing in place.
+  - Follow-up: `ensureMainRowFull` also tops up any column with
+    `LOW_COLUMN_COUNT` (2) or fewer marbles total — one new marble per call,
+    dropped at row 0 and settled by gravity, until the column climbs back
+    above the threshold.
+- `src/screens/GameScreen.js`: column-down buttons use `canSlideDown` (was
+  `!isColumnBottomFull`) for the disabled state; import updated accordingly.
+
+Also (smaller fixes from same session):
+- `src/screens/MenuScreen.js`: Solo picker (Time Attack / Endless) buttons now
+  call `setSolo(false)` before navigating, so the modal closes immediately on
+  selection instead of staying open until Cancel.
+- `src/screens/GameScreen.js`: WASD now mirrors arrow keys (A/D select
+  column, W/S slide column up/down); `kbHint` text updated.
+
+Verified by direct code review (Read tool) — the project's mount inside the
+sandbox shell is currently serving a stale/cached snapshot of these files (a
+303-line version of `engine.js`, vs. the real 345-line file), so
+`npx expo export`/Babel checks via the sandbox shell are not trustworthy this
+session and were skipped. All edited files read back correctly via the file
+tools and are syntactically valid JS/JSX. **Manual browser playtest is still
+the next real verification step.**
+
+## Session 2026-06-11 (ball redesign + 5/6 difficulty toggle)
+
+Reskinned game pieces from the glossy "marble" look to a flat "ball" look
+using `marbles_template_1.svg` (6 flat hex colours), and renamed game-piece
+terminology from "marble" to "ball" throughout the codebase. The project
+title "Marble Mayhem" and the "Lose Your Marbles" homage subtitle are
+unchanged — those refer to the original game's name, not the pieces.
+
+- `src/constants.js`:
+  - Replaced `MARBLE_TYPES`/`MARBLE_COLORS` with `BALL_COLORS` (flat hex:
+    red `#E24B4A`, blue `#378ADD`, green `#639922`, amber `#EF9F27`, purple
+    `#7F77DD`, teal `#1D9E75`), `BALL_TYPES_5` (drops teal), `BALL_TYPES_6`
+    (all six), `DEFAULT_BALL_TYPES = BALL_TYPES_5`.
+  - Renamed `SCORE_PER_MARBLE` → `SCORE_PER_BALL`.
+- `src/engine.js`:
+  - New module-level `activeTypes` (defaults to `DEFAULT_BALL_TYPES`) +
+    exported `setBallTypes(types)` setter — lets `GameScreen` pick the
+    5- or 6-colour palette before building a board.
+  - `randomType()` now draws from `activeTypes`.
+  - Renamed `makeMarble` → `makeBall`, `addPenaltyMarble` → `addPenaltyBall`.
+  - Renamed "marble"/"marbles" → "ball"/"balls" in comments throughout
+    (doc header, gravity, matching, column slides, main-row guarantee,
+    penalty system, AI scoring).
+- `src/components/BallView.js` (new): flat solid-colour circle, no
+  border/glow/highlight — uses `BALL_COLORS`.
+- `src/components/MarbleView.js`: now a 1-line re-export redirect to
+  `BallView` (kept instead of deleted — file deletion isn't reliable in
+  this environment; see `check.js` note below).
+- `src/screens/MenuScreen.js`:
+  - New top-right "BALLS 5/6" toggle (pill switch), persisted via
+    `AsyncStorage` key `'ballCount'`. Tapping flips between 5 and 6.
+  - `play(mode)` now navigates with `{ mode, ballCount }`.
+  - Ball decoration row renders `BALL_TYPES_5`/`BALL_TYPES_6` via
+    `BallView` depending on the current toggle state.
+  - Help-modal copy: "marble"/"marbles" → "ball"/"balls". Title
+    ("MARBLE MAYHEM") and subtitle ("Lose Your Marbles — reimagined")
+    left as-is (game-name homage).
+  - Style `marbleRow` → `ballRow`; new `difficultyToggle`/`difficultyPill`/
+    `difficultyOption*` styles.
+- `src/screens/GameScreen.js`:
+  - Reads `ballCount = route?.params?.ballCount ?? 5`.
+  - `createInitialState(mode, ballCount = 5)` calls
+    `setBallTypes(ballCount === 6 ? BALL_TYPES_6 : BALL_TYPES_5)` before
+    building boards, and stores `ballCount` in state for `RESET`.
+  - `RESET` now calls `createInitialState(state.mode, state.ballCount)`.
+  - Renamed `SCORE_PER_MARBLE`→`SCORE_PER_BALL`, `addPenaltyMarble`→
+    `addPenaltyBall`, `MarbleView`→`BallView` (import + board-cell usage).
+
+Verified via Read tool (sandbox bash mount is still stale this session —
+see prior session's note). No `npm run web` playtest done yet for this
+change; recommend testing both the 5- and 6-ball toggle states, and
+confirming the toggle persists across app restarts.
+
+Also note: `check.js` (stray debug file from an earlier session) still
+can't be deleted (`EPERM`); its contents remain a single harmless comment.
+
+## What's next (in priority order)
+
+1. Manual playtest in browser (`npm run web`): pause/resume mid-game, Time
+   Attack countdown + game-over, Endless until stuck, solo high-score saving,
+   and the new 5/6 ball-count toggle (verify persistence + correct palette).
+   No playtest has happened yet — this is the first thing to do.
+2. Low priority / not yet requested: update MenuScreen "How to Play" modal to
+   reflect Prototype 2.0 mechanics (push-from-below copy is outdated).
+3. Native build (iOS/Android via `expo build`/EAS) remains a future option —
+   keep changes framework-agnostic, no web-only forks of game logic.

@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Marble Mayhem",
+    "slug": "marble-mayhem",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0F0F1A"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.yourname.marblemayhem"
+    },
+    "android": {
+      "package": "com.yourname.marblemayhem"
+    },
+    "web": {
+      "bundler": "metro",
+      "themeColor": "#0F0F1A",
+      "backgroundColor": "#0F0F1A",
+      "display": "standalone",
+      "orientation": "portrait"
+    },
+    "platforms": ["ios", "android", "web"]
+  }
+}
