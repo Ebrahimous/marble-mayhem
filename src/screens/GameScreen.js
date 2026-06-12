@@ -34,6 +34,7 @@ import {
   isBoardFull,
   settleBoard,
   addPenaltyBall,
+  spawnBallWave,
   setBallTypes,
   getAIMove,
 } from '../engine';
@@ -140,6 +141,15 @@ function gameReducer(state, action) {
       if (state.mode === 'ai' && player === 1) return state;
       const board = (dir === 'left' ? slideMainRowLeft : slideMainRowRight)(state.boards[player]);
       return applySlide(state, player, board);
+    }
+
+    case 'SPAWN_WAVE': {
+      // "Tap to move": tapping the centre of the main row throws a fresh
+      // wave of balls onto the board instead of sliding anything.
+      if (state.paused) return state;
+      const { player } = action;
+      if (state.mode === 'ai' && player === 1) return state;
+      return applySlide(state, player, spawnBallWave(state.boards[player]));
     }
 
     case 'AI_MOVE': {
@@ -268,9 +278,15 @@ function useBallAnimations(board, cellSize) {
       const targetLeft = col * cellSize;
 
       if (!entry) {
-        // Newly-spawned ball: drop in from one row above, fading in.
+        // Newly-spawned ball: slide in from just beyond the edge it entered
+        // from (top of the board for 'top' spawns, bottom for 'bottom'
+        // spawns — defaulting to 'top' for balls with no recorded side,
+        // e.g. the initial board fill), fading in as it arrives.
+        const startTop = ball.spawnSide === 'bottom'
+          ? targetTop + cellSize
+          : targetTop - cellSize;
         entry = {
-          top: new Animated.Value(targetTop - cellSize),
+          top: new Animated.Value(startTop),
           left: new Animated.Value(targetLeft),
           opacity: new Animated.Value(0),
           type: ball.type,
@@ -374,13 +390,13 @@ function useBallAnimations(board, cellSize) {
 const TAP_THRESHOLD = 10;
 
 const BoardWithControls = React.memo(({
-  board, label, onColSlide, onRowSlide, disabled, selectedCol, cellSize, boardPx, tapToMove,
+  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove,
 }) => {
   const swipeThreshold = cellSize * 0.45;
 
   // Always-fresh callbacks/values without stale closure
-  const cbRef = useRef({ onColSlide, onRowSlide, disabled, cellSize, boardPx, swipeThreshold, tapToMove });
-  cbRef.current = { onColSlide, onRowSlide, disabled, cellSize, boardPx, swipeThreshold, tapToMove };
+  const cbRef = useRef({ onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove });
+  cbRef.current = { onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove };
 
   const gestureStart   = useRef({ col: 0, row: 0, x: 0 });
   const gestureHandled = useRef(false);
@@ -423,14 +439,21 @@ const BoardWithControls = React.memo(({
           gestureHandled.current = true;
         } else if (cbRef.current.tapToMove && absX < TAP_THRESHOLD && absY < TAP_THRESHOLD) {
           // "Tap to move": tapping a column above the mid row pushes it up,
-          // below the mid row pushes it down; tapping the mid row slides it
-          // toward the side that was tapped.
+          // below the mid row pushes it down. Tapping the mid row slides it
+          // toward the side that was tapped — unless the centre ball was
+          // tapped, which throws a fresh wave of balls onto the board
+          // instead of sliding.
           if (row < MAIN_ROW) {
             cbRef.current.onColSlide(col, 'up');
           } else if (row > MAIN_ROW) {
             cbRef.current.onColSlide(col, 'down');
           } else {
-            cbRef.current.onRowSlide(x < cbRef.current.boardPx / 2 ? 'left' : 'right');
+            const center = Math.floor(COLS / 2);
+            if (col === center) {
+              cbRef.current.onCenterTap();
+            } else {
+              cbRef.current.onRowSlide(col < center ? 'left' : 'right');
+            }
           }
           gestureHandled.current = true;
         }
@@ -613,6 +636,10 @@ export default function GameScreen({ navigation, route }) {
     dispatch({ type: 'COL_SLIDE', player: 1, col, dir }), []);
   const handleP2RowSlide = useCallback((dir) =>
     dispatch({ type: 'ROW_SLIDE', player: 1, dir }), []);
+  const handleP1CenterTap = useCallback(() =>
+    dispatch({ type: 'SPAWN_WAVE', player: 0 }), []);
+  const handleP2CenterTap = useCallback(() =>
+    dispatch({ type: 'SPAWN_WAVE', player: 1 }), []);
 
   const { boards, scores, gameOver, winner, message, selectedCol, paused, timeLeft } = state;
   const p2Label = mode === 'ai' ? 'CPU' : 'P2';
@@ -698,6 +725,7 @@ export default function GameScreen({ navigation, route }) {
               label={mode === 'solo-time' ? 'TIME ATTACK' : 'ENDLESS'}
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
+              onCenterTap={handleP1CenterTap}
               disabled={gameOver || paused}
               selectedCol={selectedCol}
               cellSize={cellSize}
@@ -712,6 +740,7 @@ export default function GameScreen({ navigation, route }) {
               label="P1"
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
+              onCenterTap={handleP1CenterTap}
               disabled={gameOver || paused}
               selectedCol={selectedCol}
               cellSize={cellSize}
@@ -726,6 +755,7 @@ export default function GameScreen({ navigation, route }) {
               label={p2Label}
               onColSlide={handleP2ColSlide}
               onRowSlide={handleP2RowSlide}
+              onCenterTap={handleP2CenterTap}
               disabled={gameOver || paused || mode === 'ai'}
               selectedCol={-1}
               cellSize={cellSize}

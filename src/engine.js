@@ -268,13 +268,30 @@ function columnCount(board, col) {
 const LOW_COLUMN_COUNT = 3;
 
 /**
+ * Pick which end of column `c` a new ball should enter from — 'top',
+ * 'bottom', or null if both ends are already occupied. If both ends are
+ * open, choose randomly so new balls visibly enter from either side of the
+ * board.
+ */
+function pickSpawnSide(board, c) {
+  const topOpen = !board[0][c];
+  const botOpen = !board[ROWS - 1][c];
+  if (topOpen && botOpen) return Math.random() < 0.5 ? 'top' : 'bottom';
+  if (topOpen) return 'top';
+  if (botOpen) return 'bottom';
+  return null;
+}
+
+/**
  * Ensure every cell in MAIN_ROW is occupied, and top up any column that has
  * run low (LOW_COLUMN_COUNT balls or fewer).
  *
- * New balls are dropped in from the top of the column (row 0) and gravity
- * is re-applied so they fall down to their resting place — toward MAIN_ROW
- * if it's empty, or settling lower in the column otherwise — rather than
- * materialising directly in the slot they end up filling.
+ * Each new ball enters from a random open end of its column — either
+ * dropping in from the top (row 0) and falling toward MAIN_ROW, or rising in
+ * from the bottom (row ROWS-1) and floating up toward MAIN_ROW. The chosen
+ * entry side is recorded on the ball as `spawnSide` so the UI can animate it
+ * sliding in from that edge. Gravity is re-applied afterwards so every ball
+ * settles into its resting place.
  */
 export function ensureMainRowFull(board) {
   let next = cloneBoard(board);
@@ -283,14 +300,42 @@ export function ensureMainRowFull(board) {
   for (let c = 0; c < COLS; c++) {
     const needsMainRow = !next[MAIN_ROW][c];
     const needsTopUp   = columnCount(next, c) <= LOW_COLUMN_COUNT;
+    if (!needsMainRow && !needsTopUp) continue;
 
-    if ((needsMainRow || needsTopUp) && !next[0][c]) {
-      next[0][c] = makeBall();
-      spawned = true;
-    }
+    const side = pickSpawnSide(next, c);
+    if (!side) continue;
+
+    const ball = makeBall();
+    ball.spawnSide = side;
+    next[side === 'top' ? 0 : ROWS - 1][c] = ball;
+    spawned = true;
   }
 
   return spawned ? applyGravity(next) : next;
+}
+
+/**
+ * Spawn one new ball in every column, each entering from a random open end
+ * (top or bottom) of its column — like ensureMainRowFull(), but unconditional
+ * per column. Used by the "tap to move" mid-row centre action to throw a
+ * fresh wave of balls onto the board. Columns with no open end are skipped.
+ *
+ * Returns the resulting (un-settled) board — the caller should run
+ * settleBoard() afterwards to resolve any matches the new balls create.
+ */
+export function spawnBallWave(board) {
+  let next = cloneBoard(board);
+
+  for (let c = 0; c < COLS; c++) {
+    const side = pickSpawnSide(next, c);
+    if (!side) continue;
+
+    const ball = makeBall();
+    ball.spawnSide = side;
+    next[side === 'top' ? 0 : ROWS - 1][c] = ball;
+  }
+
+  return applyGravity(next);
 }
 
 // ── Settling ──────────────────────────────────────────────────────────────────
