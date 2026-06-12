@@ -7,10 +7,10 @@
  */
 
 import React, {
-  useReducer, useEffect, useRef, useCallback,
+  useReducer, useEffect, useRef, useCallback, useState,
 } from 'react';
 import {
-  View, Text, TouchableOpacity,
+  View, Text, TouchableOpacity, Animated,
   StyleSheet, PanResponder, ScrollView, useWindowDimensions, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -187,6 +187,186 @@ function gameReducer(state, action) {
   }
 }
 
+// ── Ball fall/clear animation ─────────────────────────────────────────────────
+
+const FALL_DURATION  = 220;  // ms — gravity slide into new position
+const CLEAR_DURATION = 180;  // ms — matched balls shrinking/fading out
+
+/** Call `fn(ball, row, col)` for every occupied cell on the board. */
+function forEachCell(board, fn) {
+  for (let r = 0; r < board.length; r++) {
+    for (let c = 0; c < board[r].length; c++) {
+      const cell = board[r][c];
+      if (cell) fn(cell, r, c);
+    }
+  }
+}
+
+/**
+ * Tracks per-ball Animated positions across board state changes (identified
+ * by each ball's stable `id`), so that:
+ *  - balls that move (e.g. gravity pulling them down after a match) slide
+ *    smoothly from their old cell to their new one instead of teleporting,
+ *  - newly-spawned balls fade/drop in from just above their landing cell,
+ *  - matched balls that disappear shrink + fade out in place ("ghosts")
+ *    instead of vanishing instantly.
+ *
+ * Returns an array of <Animated.View> elements (one per ball + ghost) ready
+ * to render inside an absolutely-positioned overlay the size of the board.
+ */
+function useBallAnimations(board, cellSize) {
+  const animsRef = useRef(new Map()); // id -> { top, left, opacity, type, row, col }
+  const prevRef  = useRef(null);
+  const [ghosts, setGhosts] = useState([]);
+
+  // Re-snap all balls to their grid position when cellSize changes (resize),
+  // without animating.
+  const prevCellSize = useRef(cellSize);
+  useEffect(() => {
+    if (prevCellSize.current === cellSize) return;
+    prevCellSize.current = cellSize;
+    animsRef.current.forEach((entry) => {
+      entry.top.setValue(entry.row * cellSize);
+      entry.left.setValue(entry.col * cellSize);
+    });
+    setGhosts(gs => gs.map(gh => {
+      gh.top.setValue(gh.row * cellSize);
+      gh.left.setValue(gh.col * cellSize);
+      return gh;
+    }));
+  }, [cellSize]);
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = board;
+
+    if (!prev) {
+      // First render: place every ball at its resting position, no animation.
+      forEachCell(board, (ball, row, col) => {
+        animsRef.current.set(ball.id, {
+          top: new Animated.Value(row * cellSize),
+          left: new Animated.Value(col * cellSize),
+          opacity: new Animated.Value(1),
+          type: ball.type,
+          row, col,
+        });
+      });
+      return;
+    }
+
+    const prevMap = new Map();
+    forEachCell(prev, (ball, row, col) => prevMap.set(ball.id, { row, col }));
+
+    const seen = new Set();
+    const moves = [];
+
+    forEachCell(board, (ball, row, col) => {
+      seen.add(ball.id);
+      let entry = animsRef.current.get(ball.id);
+      const old = prevMap.get(ball.id);
+      const targetTop  = row * cellSize;
+      const targetLeft = col * cellSize;
+
+      if (!entry) {
+        // Newly-spawned ball: drop in from one row above, fading in.
+        entry = {
+          top: new Animated.Value(targetTop - cellSize),
+          left: new Animated.Value(targetLeft),
+          opacity: new Animated.Value(0),
+          type: ball.type,
+          row, col,
+        };
+        animsRef.current.set(ball.id, entry);
+        moves.push(Animated.parallel([
+          Animated.timing(entry.top,     { toValue: targetTop, duration: FALL_DURATION, useNativeDriver: false }),
+          Animated.timing(entry.opacity, { toValue: 1,         duration: FALL_DURATION, useNativeDriver: false }),
+        ]));
+      } else {
+        entry.type = ball.type;
+        entry.row = row;
+        entry.col = col;
+        if (!old || old.row !== row || old.col !== col) {
+          // Existing ball moved (gravity / slide) — slide to its new cell.
+          moves.push(Animated.parallel([
+            Animated.timing(entry.top,  { toValue: targetTop,  duration: FALL_DURATION, useNativeDriver: false }),
+            Animated.timing(entry.left, { toValue: targetLeft, duration: FALL_DURATION, useNativeDriver: false }),
+          ]));
+        }
+      }
+    });
+
+    // Balls present before but gone now were matched — shrink/fade them out
+    // in place rather than letting them vanish instantly.
+    const removed = [];
+    prevMap.forEach((pos, id) => {
+      if (seen.has(id)) return;
+      const entry = animsRef.current.get(id);
+      animsRef.current.delete(id);
+      removed.push({
+        id,
+        row: pos.row,
+        col: pos.col,
+        type: entry?.type,
+        top: entry?.top ?? new Animated.Value(pos.row * cellSize),
+        left: entry?.left ?? new Animated.Value(pos.col * cellSize),
+        opacity: entry?.opacity ?? new Animated.Value(1),
+        scale: new Animated.Value(1),
+      });
+    });
+
+    if (removed.length) {
+      setGhosts(g => [...g, ...removed]);
+      removed.forEach((gh) => {
+        Animated.parallel([
+          Animated.timing(gh.opacity, { toValue: 0,   duration: CLEAR_DURATION, useNativeDriver: false }),
+          Animated.timing(gh.scale,   { toValue: 0.25, duration: CLEAR_DURATION, useNativeDriver: false }),
+        ]).start(() => {
+          setGhosts(g => g.filter(x => x.id !== gh.id));
+        });
+      });
+    }
+
+    if (moves.length) Animated.parallel(moves).start();
+  }, [board, cellSize]);
+
+  const elements = [];
+
+  forEachCell(board, (ball) => {
+    const a = animsRef.current.get(ball.id);
+    if (!a) return;
+    elements.push(
+      <Animated.View
+        key={ball.id}
+        style={[
+          styles.ballSlot,
+          { width: cellSize, height: cellSize, top: a.top, left: a.left, opacity: a.opacity },
+        ]}
+      >
+        <BallView type={a.type} size={cellSize} />
+      </Animated.View>
+    );
+  });
+
+  ghosts.forEach((gh) => {
+    elements.push(
+      <Animated.View
+        key={`ghost-${gh.id}`}
+        style={[
+          styles.ballSlot,
+          {
+            width: cellSize, height: cellSize, top: gh.top, left: gh.left,
+            opacity: gh.opacity, transform: [{ scale: gh.scale }],
+          },
+        ]}
+      >
+        <BallView type={gh.type} size={cellSize} />
+      </Animated.View>
+    );
+  });
+
+  return elements;
+}
+
 // ── BoardWithControls ─────────────────────────────────────────────────────────
 
 const BoardWithControls = React.memo(({
@@ -239,6 +419,8 @@ const BoardWithControls = React.memo(({
     })
   ).current;
 
+  const ballElements = useBallAnimations(board, cellSize);
+
   return (
     <View style={styles.boardCtrl}>
       <Text style={styles.boardLabel}>{label}</Text>
@@ -265,13 +447,20 @@ const BoardWithControls = React.memo(({
                       isSel  && styles.selCell,
                       isMain && isSel && styles.mainSelCell,
                     ]}
-                  >
-                    <BallView type={cell?.type} size={cellSize} />
-                  </View>
+                  />
                 );
               })}
             </View>
           ))}
+        </View>
+
+        {/* Balls render in their own absolutely-positioned layer so they can
+            animate (falling/gravity, fade in/out) independently of the grid. */}
+        <View
+          style={[styles.ballLayer, { width: boardPx, height: cellSize * board.length }]}
+          pointerEvents="none"
+        >
+          {ballElements}
         </View>
 
         {!disabled && (
@@ -649,6 +838,20 @@ const styles = StyleSheet.create({
     borderColor: '#1E1E44',
   },
   boardRow: { flexDirection: 'row' },
+
+  // Ball layer — absolutely positioned overlay on top of the (now empty)
+  // grid cells. Each ball is an Animated.View positioned via top/left so it
+  // can slide smoothly between cells (gravity / clears).
+  ballLayer: {
+    position: 'absolute',
+    top: 1,
+    left: 1,
+  },
+  ballSlot: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   // Main row — gold frame lines top + bottom
   mainRowBg: {
