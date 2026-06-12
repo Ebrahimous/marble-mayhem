@@ -13,11 +13,14 @@ export default function MenuScreen({ navigation }) {
   const [high, setHigh]           = useState(0);
   const [showHelp, setHelp]       = useState(false);
   const [showSolo, setSolo]       = useState(false);
+  const [showSettings, setSettings] = useState(false);
   const [ballCount, setBallCount] = useState(5);
+  const [tapToMove, setTapToMove] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem('highScore').then(v => v && setHigh(parseInt(v, 10)));
     AsyncStorage.getItem('ballCount').then(v => v && setBallCount(parseInt(v, 10)));
+    AsyncStorage.getItem('tapToMove').then(v => setTapToMove(v === 'true'));
   }, []);
 
   const toggleBallCount = () => {
@@ -26,10 +29,25 @@ export default function MenuScreen({ navigation }) {
     AsyncStorage.setItem('ballCount', String(next));
   };
 
+  const toggleTapToMove = () => {
+    const next = !tapToMove;
+    setTapToMove(next);
+    AsyncStorage.setItem('tapToMove', String(next));
+  };
+
   const play = (mode) => navigation.navigate('Game', { mode, ballCount });
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+
+      {/* Settings button */}
+      <TouchableOpacity
+        style={[styles.settingsBtn, { top: insets.top + 12 }]}
+        onPress={() => setSettings(true)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.settingsBtnTxt}>⚙️</Text>
+      </TouchableOpacity>
 
       {/* Difficulty toggle (5 vs 6 ball colours) */}
       <TouchableOpacity
@@ -147,6 +165,42 @@ export default function MenuScreen({ navigation }) {
         </View>
       </Modal>
 
+      {/* Settings modal */}
+      <Modal visible={showSettings} animationType="slide" transparent onRequestClose={() => setSettings(false)}>
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
+            <Text style={styles.sheetTitle}>Settings</Text>
+
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={toggleTapToMove}
+              activeOpacity={0.8}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Tap to Move</Text>
+                <Text style={styles.settingDesc}>
+                  Tap above the middle row to push that column up, below it to
+                  push down, and tap the middle row's left/right side to slide
+                  it that way.
+                </Text>
+              </View>
+              <View style={styles.togglePill}>
+                <View style={[styles.toggleOption, !tapToMove && styles.toggleOptionActive]}>
+                  <Text style={[styles.toggleOptionTxt, !tapToMove && styles.toggleOptionTxtActive]}>OFF</Text>
+                </View>
+                <View style={[styles.toggleOption, tapToMove && styles.toggleOptionActive]}>
+                  <Text style={[styles.toggleOptionTxt, tapToMove && styles.toggleOptionTxtActive]}>ON</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.sheetClose} onPress={() => setSettings(false)}>
+              <Text style={styles.sheetCloseTxt}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Solo mode picker */}
       <Modal visible={showSolo} animationType="slide" transparent onRequestClose={() => setSolo(false)}>
         <View style={styles.backdrop}>
@@ -213,6 +267,21 @@ const styles = StyleSheet.create({
   subtitle: { color: '#444', fontSize: 12, letterSpacing: 2, marginTop: 6 },
 
   ballRow: { flexDirection: 'row', gap: 8 },
+
+  settingsBtn: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#12122A',
+    borderWidth: 1.5,
+    borderColor: '#252545',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsBtnTxt: { fontSize: 16 },
 
   difficultyToggle: {
     position: 'absolute',
@@ -303,4 +372,31 @@ const styles = StyleSheet.create({
   helpIcon:  { fontSize: 22, marginRight: 14, marginTop: 2 },
   helpTitle: { color: '#CCC', fontSize: 14, fontWeight: 'bold', marginBottom: 4 },
   helpBody:  { color: '#777', fontSize: 13, lineHeight: 19 },
+
+  // Settings
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 20,
+  },
+  settingLabel: { color: '#CCC', fontSize: 14, fontWeight: 'bold', marginBottom: 4 },
+  settingDesc:  { color: '#777', fontSize: 13, lineHeight: 19 },
+  togglePill: {
+    flexDirection: 'row',
+    backgroundColor: '#0D0D22',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#252545',
+    overflow: 'hidden',
+  },
+  toggleOption: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+  },
+  toggleOptionActive: {
+    backgroundColor: '#1E90FF',
+  },
+  toggleOptionTxt: { color: '#666', fontSize: 12, fontWeight: 'bold' },
+  toggleOptionTxtActive: { color: '#FFF' },
 });

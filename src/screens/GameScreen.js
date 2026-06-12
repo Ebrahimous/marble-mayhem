@@ -369,16 +369,20 @@ function useBallAnimations(board, cellSize) {
 
 // ── BoardWithControls ─────────────────────────────────────────────────────────
 
+// Below this many pixels of movement, a press is treated as a tap rather
+// than a swipe/drag (used by the "tap to move" control scheme).
+const TAP_THRESHOLD = 10;
+
 const BoardWithControls = React.memo(({
-  board, label, onColSlide, onRowSlide, disabled, selectedCol, cellSize, boardPx,
+  board, label, onColSlide, onRowSlide, disabled, selectedCol, cellSize, boardPx, tapToMove,
 }) => {
   const swipeThreshold = cellSize * 0.45;
 
   // Always-fresh callbacks/values without stale closure
-  const cbRef = useRef({ onColSlide, onRowSlide, disabled, cellSize, swipeThreshold });
-  cbRef.current = { onColSlide, onRowSlide, disabled, cellSize, swipeThreshold };
+  const cbRef = useRef({ onColSlide, onRowSlide, disabled, cellSize, boardPx, swipeThreshold, tapToMove });
+  cbRef.current = { onColSlide, onRowSlide, disabled, cellSize, boardPx, swipeThreshold, tapToMove };
 
-  const gestureStart   = useRef({ col: 0, row: 0 });
+  const gestureStart   = useRef({ col: 0, row: 0, x: 0 });
   const gestureHandled = useRef(false);
 
   const panResponder = useRef(
@@ -395,24 +399,39 @@ const BoardWithControls = React.memo(({
 
       onPanResponderGrant: (e) => {
         const cs = cbRef.current.cellSize;
+        const x = e.nativeEvent.locationX ?? 0;
         gestureStart.current = {
-          col: Math.min(COLS - 1, Math.max(0, Math.floor((e.nativeEvent.locationX ?? 0) / cs))),
+          col: Math.min(COLS - 1, Math.max(0, Math.floor(x / cs))),
           row: Math.min(ROWS - 1, Math.max(0, Math.floor((e.nativeEvent.locationY ?? 0) / cs))),
+          x,
         };
         gestureHandled.current = false;
       },
 
       onPanResponderRelease: (_, g) => {
         if (gestureHandled.current || cbRef.current.disabled) return;
-        const { col, row } = gestureStart.current;
+        const { col, row, x } = gestureStart.current;
         const absX = Math.abs(g.dx);
         const absY = Math.abs(g.dy);
         const threshold = cbRef.current.swipeThreshold;
+
         if (absX > absY && absX > threshold && row === MAIN_ROW) {
           cbRef.current.onRowSlide(g.dx > 0 ? 'right' : 'left');
           gestureHandled.current = true;
         } else if (absY > absX && absY > threshold) {
           cbRef.current.onColSlide(col, g.dy > 0 ? 'down' : 'up');
+          gestureHandled.current = true;
+        } else if (cbRef.current.tapToMove && absX < TAP_THRESHOLD && absY < TAP_THRESHOLD) {
+          // "Tap to move": tapping a column above the mid row pushes it up,
+          // below the mid row pushes it down; tapping the mid row slides it
+          // toward the side that was tapped.
+          if (row < MAIN_ROW) {
+            cbRef.current.onColSlide(col, 'up');
+          } else if (row > MAIN_ROW) {
+            cbRef.current.onColSlide(col, 'down');
+          } else {
+            cbRef.current.onRowSlide(x < cbRef.current.boardPx / 2 ? 'left' : 'right');
+          }
           gestureHandled.current = true;
         }
       },
@@ -492,6 +511,12 @@ export default function GameScreen({ navigation, route }) {
   // Keep a ref to always-current state for the keyboard handler
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // ── "Tap to move" setting (toggled in the Settings menu) ─────────────────────
+  const [tapToMove, setTapToMove] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem('tapToMove').then(v => setTapToMove(v === 'true'));
+  }, []);
 
   // ── AI timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -677,6 +702,7 @@ export default function GameScreen({ navigation, route }) {
               selectedCol={selectedCol}
               cellSize={cellSize}
               boardPx={boardPx}
+              tapToMove={tapToMove}
             />
           </View>
         ) : (
@@ -690,6 +716,7 @@ export default function GameScreen({ navigation, route }) {
               selectedCol={selectedCol}
               cellSize={cellSize}
               boardPx={boardPx}
+              tapToMove={tapToMove}
             />
 
             <View style={styles.divider} />
@@ -703,6 +730,7 @@ export default function GameScreen({ navigation, route }) {
               selectedCol={-1}
               cellSize={cellSize}
               boardPx={boardPx}
+              tapToMove={tapToMove}
             />
           </View>
         )}
