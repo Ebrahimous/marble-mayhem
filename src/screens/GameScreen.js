@@ -2,7 +2,6 @@
  * GameScreen.js — Marble Mayhem Prototype 2.0
  *
  * Controls
- *   Buttons : ▲/▼ slide column, ◀/▶ cycle main row
  *   Keyboard: ← → select column   ↑ ↓ slide selected column   Space → cycle row right
  *   Touch   : drag column up/down, swipe main row left/right
  */
@@ -12,7 +11,7 @@ import React, {
 } from 'react';
 import {
   View, Text, TouchableOpacity,
-  StyleSheet, PanResponder, ScrollView, useWindowDimensions,
+  StyleSheet, PanResponder, ScrollView, useWindowDimensions, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -32,8 +31,6 @@ import {
   slideColumnDown,
   slideMainRowLeft,
   slideMainRowRight,
-  isColumnTopFull,
-  canSlideDown,
   isBoardFull,
   resolveMatches,
   ensureMainRowFull,
@@ -209,6 +206,12 @@ const BoardWithControls = React.memo(({
       onStartShouldSetPanResponder: () => !cbRef.current.disabled,
       onMoveShouldSetPanResponder:  (_, g) =>
         !cbRef.current.disabled && (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6),
+      // Claim the gesture *before* the parent ScrollView so vertical drags on
+      // the board slide a column instead of scrolling the page.
+      onStartShouldSetPanResponderCapture: () => !cbRef.current.disabled,
+      onMoveShouldSetPanResponderCapture: (_, g) =>
+        !cbRef.current.disabled && (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6),
+      onShouldBlockNativeResponder: () => true,
 
       onPanResponderGrant: (e) => {
         const cs = cbRef.current.cellSize;
@@ -240,26 +243,8 @@ const BoardWithControls = React.memo(({
     <View style={styles.boardCtrl}>
       <Text style={styles.boardLabel}>{label}</Text>
 
-      {/* Column UP buttons */}
-      <View style={[styles.colBtnRow, { width: boardPx }]}>
-        {Array.from({ length: COLS }, (_, c) => {
-          const canUp = !isColumnTopFull(board, c) && !disabled;
-          const sel   = c === selectedCol && selectedCol >= 0;
-          return (
-            <TouchableOpacity
-              key={c}
-              style={[styles.colBtn, { width: cellSize }, !canUp && styles.colBtnDim, sel && styles.colBtnSel]}
-              onPress={() => canUp && onColSlide(c, 'up')}
-              disabled={!canUp}
-              activeOpacity={0.6}
-            >
-              <Text style={[styles.colBtnTxt, !canUp && styles.colBtnTxtDim, sel && styles.colBtnTxtSel]}>▲</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Board grid + gesture overlay */}
+      {/* Board grid + gesture overlay (swipe up/down to slide a column,
+          swipe left/right on the centre row to shift the match row) */}
       <View style={{ position: 'relative' }}>
         <View style={[styles.boardGrid, { width: boardPx }]}>
           {board.map((row, rowIdx) => (
@@ -292,52 +277,10 @@ const BoardWithControls = React.memo(({
         {!disabled && (
           <View
             {...panResponder.panHandlers}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, styles.gestureOverlay]}
             pointerEvents="box-only"
           />
         )}
-      </View>
-
-      {/* Column DOWN buttons */}
-      <View style={[styles.colBtnRow, { width: boardPx }]}>
-        {Array.from({ length: COLS }, (_, c) => {
-          const canDown = canSlideDown(board, c) && !disabled;
-          const sel     = c === selectedCol && selectedCol >= 0;
-          return (
-            <TouchableOpacity
-              key={c}
-              style={[styles.colBtn, { width: cellSize }, !canDown && styles.colBtnDim, sel && styles.colBtnSel]}
-              onPress={() => canDown && onColSlide(c, 'down')}
-              disabled={!canDown}
-              activeOpacity={0.6}
-            >
-              <Text style={[styles.colBtnTxt, !canDown && styles.colBtnTxtDim, sel && styles.colBtnTxtSel]}>▼</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Row slide buttons */}
-      <View style={[styles.rowSlideRow, { width: boardPx }]}>
-        <TouchableOpacity
-          style={[styles.rowSlideBtn, disabled && styles.rowSlideBtnDim]}
-          onPress={() => !disabled && onRowSlide('left')}
-          disabled={disabled}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.rowSlideTxt, disabled && styles.rowSlideTxtDim]}>◀</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.matchLabel}>MATCH ROW</Text>
-
-        <TouchableOpacity
-          style={[styles.rowSlideBtn, disabled && styles.rowSlideBtnDim]}
-          onPress={() => !disabled && onRowSlide('right')}
-          disabled={disabled}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.rowSlideTxt, disabled && styles.rowSlideTxtDim]}>▶</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -578,8 +521,6 @@ export default function GameScreen({ navigation, route }) {
           </View>
         )}
 
-        {/* Keyboard hint */}
-        <Text style={styles.kbHint}>← → / A D select col  · ↑ ↓ / W S slide col  · Space shift row · P pause</Text>
       </ScrollView>
 
       {/* Pause overlay */}
@@ -691,21 +632,13 @@ const styles = StyleSheet.create({
   boardCtrl:  { alignItems: 'center' },
   boardLabel: { color: '#444', fontSize: 10, letterSpacing: 2, marginBottom: 4 },
 
-  // Column buttons
-  colBtnRow:    { flexDirection: 'row' },
-  colBtn: {
-    height: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#161630',
-    borderRadius: 4,
-    marginHorizontal: 0.5,
-  },
-  colBtnDim:    { backgroundColor: '#0D0D1A' },
-  colBtnSel:    { backgroundColor: '#0A1A3A', borderWidth: 2, borderColor: '#3388FF' },
-  colBtnTxt:    { color: '#8888BB', fontSize: 12 },
-  colBtnTxtDim: { color: '#2A2A44' },
-  colBtnTxtSel: { color: '#44AAFF', fontWeight: 'bold' },
+  // Gesture overlay over the board grid. `touchAction: 'none'` (web only)
+  // stops the browser from treating vertical drags as page-scroll gestures
+  // so the PanResponder gets them instead.
+  gestureOverlay: Platform.select({
+    web: { touchAction: 'none' },
+    default: {},
+  }),
 
   // Board grid
   boardGrid: {
@@ -806,3 +739,4 @@ const styles = StyleSheet.create({
   goBtnTxt:          { color: '#FFF', fontSize: 17, fontWeight: 'bold', letterSpacing: 1 },
   goBtnTxtSecondary: { color: '#666' },
 });
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
