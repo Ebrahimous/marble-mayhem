@@ -40,6 +40,7 @@ import {
 } from '../engine';
 
 import BallView from '../components/BallView';
+import * as sfx from '../sounds';
 
 // ── Initial state ─────────────────────────────────────────────────────────────
 
@@ -293,6 +294,7 @@ function useBallAnimations(board, cellSize) {
           row, col,
         };
         animsRef.current.set(ball.id, entry);
+        sfx.playSpawn(ball.spawnSide);
         moves.push(Animated.parallel([
           Animated.timing(entry.top,     { toValue: targetTop, duration: FALL_DURATION, useNativeDriver: false }),
           Animated.timing(entry.opacity, { toValue: 1,         duration: FALL_DURATION, useNativeDriver: false }),
@@ -628,18 +630,56 @@ export default function GameScreen({ navigation, route }) {
   }, []); // register once; stateRef always has current state
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
-  const handleP1ColSlide = useCallback((col, dir) =>
-    dispatch({ type: 'COL_SLIDE', player: 0, col, dir }), []);
-  const handleP1RowSlide = useCallback((dir) =>
-    dispatch({ type: 'ROW_SLIDE', player: 0, dir }), []);
-  const handleP2ColSlide = useCallback((col, dir) =>
-    dispatch({ type: 'COL_SLIDE', player: 1, col, dir }), []);
-  const handleP2RowSlide = useCallback((dir) =>
-    dispatch({ type: 'ROW_SLIDE', player: 1, dir }), []);
-  const handleP1CenterTap = useCallback(() =>
-    dispatch({ type: 'SPAWN_WAVE', player: 0 }), []);
-  const handleP2CenterTap = useCallback(() =>
-    dispatch({ type: 'SPAWN_WAVE', player: 1 }), []);
+  const handleP1ColSlide = useCallback((col, dir) => {
+    sfx.playMove();
+    dispatch({ type: 'COL_SLIDE', player: 0, col, dir });
+  }, []);
+  const handleP1RowSlide = useCallback((dir) => {
+    sfx.playMove();
+    dispatch({ type: 'ROW_SLIDE', player: 0, dir });
+  }, []);
+  const handleP2ColSlide = useCallback((col, dir) => {
+    sfx.playMove();
+    dispatch({ type: 'COL_SLIDE', player: 1, col, dir });
+  }, []);
+  const handleP2RowSlide = useCallback((dir) => {
+    sfx.playMove();
+    dispatch({ type: 'ROW_SLIDE', player: 1, dir });
+  }, []);
+  const handleP1CenterTap = useCallback(() => {
+    sfx.playMove();
+    dispatch({ type: 'SPAWN_WAVE', player: 0 });
+  }, []);
+  const handleP2CenterTap = useCallback(() => {
+    sfx.playMove();
+    dispatch({ type: 'SPAWN_WAVE', player: 1 });
+  }, []);
+
+  // ── Sound effects: matches, chains, penalties, game over ─────────────────────
+  useEffect(() => {
+    if (!state.message) return;
+    const isChain = state.message.includes('CHAIN');
+    if (isChain) {
+      const chains = parseInt(state.message, 10) || 2;
+      sfx.playChain(chains);
+    } else {
+      sfx.playMatch();
+    }
+    if (!isSolo) sfx.playPenalty();
+  }, [state.message]);
+
+  useEffect(() => {
+    if (!state.gameOver) return;
+    if (isSolo) {
+      sfx.playRoundEnd();
+    } else if (state.winner === null) {
+      sfx.playRoundEnd();
+    } else if (mode === 'ai') {
+      state.winner === 0 ? sfx.playWin() : sfx.playLose();
+    } else {
+      sfx.playWin();
+    }
+  }, [state.gameOver]);
 
   const { boards, scores, gameOver, winner, message, selectedCol, paused, timeLeft } = state;
   const p2Label = mode === 'ai' ? 'CPU' : 'P2';
@@ -658,7 +698,7 @@ export default function GameScreen({ navigation, route }) {
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+          <TouchableOpacity onPress={() => { sfx.playClick(); navigation.goBack(); }} style={styles.headerBtn}>
             <Text style={styles.headerBtnTxt}>◀</Text>
           </TouchableOpacity>
 
@@ -696,7 +736,7 @@ export default function GameScreen({ navigation, route }) {
 
           {/* Pause button */}
           <TouchableOpacity
-            onPress={() => dispatch({ type: 'TOGGLE_PAUSE' })}
+            onPress={() => { sfx.playClick(); dispatch({ type: 'TOGGLE_PAUSE' }); }}
             style={styles.headerBtn}
             disabled={gameOver}
           >
@@ -705,7 +745,7 @@ export default function GameScreen({ navigation, route }) {
 
           {/* Reset button */}
           <TouchableOpacity
-            onPress={() => dispatch({ type: 'RESET' })}
+            onPress={() => { sfx.playClick(); dispatch({ type: 'RESET' }); }}
             style={styles.headerBtn}
           >
             <Text style={styles.headerBtnTxt}>↺</Text>
@@ -772,12 +812,12 @@ export default function GameScreen({ navigation, route }) {
         <View style={styles.overlay}>
           <Text style={styles.goTitle}>⏸  PAUSED</Text>
 
-          <TouchableOpacity style={styles.goBtn} onPress={() => dispatch({ type: 'TOGGLE_PAUSE' })}>
+          <TouchableOpacity style={styles.goBtn} onPress={() => { sfx.playClick(); dispatch({ type: 'TOGGLE_PAUSE' }); }}>
             <Text style={styles.goBtnTxt}>▶  Resume</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.goBtn, styles.goBtnSecondary]}
-            onPress={() => navigation.navigate('Menu')}
+            onPress={() => { sfx.playClick(); navigation.navigate('Menu'); }}
           >
             <Text style={[styles.goBtnTxt, styles.goBtnTxtSecondary]}>Main Menu</Text>
           </TouchableOpacity>
@@ -822,12 +862,12 @@ export default function GameScreen({ navigation, route }) {
             </>
           )}
 
-          <TouchableOpacity style={styles.goBtn} onPress={() => dispatch({ type: 'RESET' })}>
+          <TouchableOpacity style={styles.goBtn} onPress={() => { sfx.playClick(); dispatch({ type: 'RESET' }); }}>
             <Text style={styles.goBtnTxt}>▶  Play Again</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.goBtn, styles.goBtnSecondary]}
-            onPress={() => navigation.navigate('Menu')}
+            onPress={() => { sfx.playClick(); navigation.navigate('Menu'); }}
           >
             <Text style={[styles.goBtnTxt, styles.goBtnTxtSecondary]}>Main Menu</Text>
           </TouchableOpacity>

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BallView from '../components/BallView';
 import { CELL_SIZE, BALL_TYPES_5, BALL_TYPES_6 } from '../constants';
+import * as sfx from '../sounds';
 
 export default function MenuScreen({ navigation }) {
   const insets    = useSafeAreaInsets();
@@ -16,26 +17,36 @@ export default function MenuScreen({ navigation }) {
   const [showSettings, setSettings] = useState(false);
   const [ballCount, setBallCount] = useState(5);
   const [tapToMove, setTapToMove] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
 
   useEffect(() => {
     AsyncStorage.getItem('highScore').then(v => v && setHigh(parseInt(v, 10)));
     AsyncStorage.getItem('ballCount').then(v => v && setBallCount(parseInt(v, 10)));
     AsyncStorage.getItem('tapToMove').then(v => setTapToMove(v === 'true'));
+    AsyncStorage.getItem('soundMuted').then(v => setSoundOn(v !== 'true'));
   }, []);
 
   const toggleBallCount = () => {
+    sfx.playClick();
     const next = ballCount === 5 ? 6 : 5;
     setBallCount(next);
     AsyncStorage.setItem('ballCount', String(next));
   };
 
   const toggleTapToMove = () => {
+    sfx.playClick();
     const next = !tapToMove;
     setTapToMove(next);
     AsyncStorage.setItem('tapToMove', String(next));
   };
 
-  const play = (mode) => navigation.navigate('Game', { mode, ballCount });
+  const toggleSound = () => {
+    const muted = sfx.toggleMuted();
+    setSoundOn(!muted);
+    sfx.playClick();
+  };
+
+  const play = (mode) => { sfx.playClick(); navigation.navigate('Game', { mode, ballCount }); };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -43,7 +54,7 @@ export default function MenuScreen({ navigation }) {
       {/* Settings button */}
       <TouchableOpacity
         style={[styles.settingsBtn, { top: insets.top + 12 }]}
-        onPress={() => setSettings(true)}
+        onPress={() => { sfx.playClick(); setSettings(true); }}
         activeOpacity={0.8}
       >
         <Text style={styles.settingsBtnTxt}>⚙️</Text>
@@ -94,7 +105,7 @@ export default function MenuScreen({ navigation }) {
 
         <TouchableOpacity
           style={[styles.modeBtn, styles.modeBtnSolo]}
-          onPress={() => setSolo(true)}
+          onPress={() => { sfx.playClick(); setSolo(true); }}
           activeOpacity={0.8}
         >
           <Text style={styles.modeBtnIcon}>🎯</Text>
@@ -126,7 +137,7 @@ export default function MenuScreen({ navigation }) {
       </View>
 
       {/* How to play */}
-      <TouchableOpacity onPress={() => setHelp(true)} style={styles.helpLink}>
+      <TouchableOpacity onPress={() => { sfx.playClick(); setHelp(true); }} style={styles.helpLink}>
         <Text style={styles.helpLinkTxt}>How to Play</Text>
       </TouchableOpacity>
 
@@ -158,7 +169,7 @@ export default function MenuScreen({ navigation }) {
                 board columns, P2 taps the right board columns.
               </HelpRow>
             </ScrollView>
-            <TouchableOpacity style={styles.sheetClose} onPress={() => setHelp(false)}>
+            <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setHelp(false); }}>
               <Text style={styles.sheetCloseTxt}>Got it!</Text>
             </TouchableOpacity>
           </View>
@@ -170,6 +181,28 @@ export default function MenuScreen({ navigation }) {
         <View style={styles.backdrop}>
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
             <Text style={styles.sheetTitle}>Settings</Text>
+
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={toggleSound}
+              activeOpacity={0.8}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Sound Effects</Text>
+                <Text style={styles.settingDesc}>
+                  Marble clinks, match chimes, and other sound effects during
+                  play.
+                </Text>
+              </View>
+              <View style={styles.togglePill}>
+                <View style={[styles.toggleOption, !soundOn && styles.toggleOptionActive]}>
+                  <Text style={[styles.toggleOptionTxt, !soundOn && styles.toggleOptionTxtActive]}>OFF</Text>
+                </View>
+                <View style={[styles.toggleOption, soundOn && styles.toggleOptionActive]}>
+                  <Text style={[styles.toggleOptionTxt, soundOn && styles.toggleOptionTxtActive]}>ON</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.settingRow}
@@ -194,7 +227,7 @@ export default function MenuScreen({ navigation }) {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.sheetClose} onPress={() => setSettings(false)}>
+            <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setSettings(false); }}>
               <Text style={styles.sheetCloseTxt}>Done</Text>
             </TouchableOpacity>
           </View>
@@ -231,7 +264,7 @@ export default function MenuScreen({ navigation }) {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.sheetClose} onPress={() => setSolo(false)}>
+            <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setSolo(false); }}>
               <Text style={styles.sheetCloseTxt}>Cancel</Text>
             </TouchableOpacity>
           </View>
