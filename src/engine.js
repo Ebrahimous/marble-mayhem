@@ -101,9 +101,10 @@ export function createInitialBoard() {
     }
   }
 
-  // Pre-resolve accidental matches, then guarantee main row is full
-  const { board: clean } = resolveMatches(board);
-  return ensureMainRowFull(clean);
+  // Pre-resolve accidental matches, top up the main row, and keep settling
+  // until the board is stable (handles any new matches created by topping up).
+  const { board: settled } = settleBoard(board);
+  return settled;
 }
 
 // ── Column slides ─────────────────────────────────────────────────────────────
@@ -290,6 +291,52 @@ export function ensureMainRowFull(board) {
   }
 
   return spawned ? applyGravity(next) : next;
+}
+
+// ── Settling ──────────────────────────────────────────────────────────────────
+
+/** Cheap fingerprint of a board's ball identities + positions. */
+function boardSnapshot(board) {
+  let s = '';
+  for (let r = 0; r < board.length; r++) {
+    for (let c = 0; c < board[r].length; c++) {
+      s += (board[r][c] ? board[r][c].id : '_') + ',';
+    }
+  }
+  return s;
+}
+
+const MAX_SETTLE_ROUNDS = 25;
+
+/**
+ * Fully settle a board after a move: repeatedly resolve MAIN_ROW matches +
+ * gravity, then top up the main row / low columns with new balls — looping
+ * as long as either step changes the board.
+ *
+ * This catches matches formed by newly-spawned top-up balls landing in
+ * MAIN_ROW (which a single resolveMatches() + ensureMainRowFull() pass would
+ * miss, leaving an un-cleared match sitting in the main row).
+ *
+ * Returns { board, cleared, chains } — totals across every round.
+ */
+export function settleBoard(board) {
+  let current = board;
+  let totalCleared = 0;
+  let totalChains  = 0;
+
+  for (let round = 0; round < MAX_SETTLE_ROUNDS; round++) {
+    const before = boardSnapshot(current);
+
+    const { board: resolved, cleared, chains } = resolveMatches(current);
+    totalCleared += cleared;
+    totalChains  += chains;
+
+    current = ensureMainRowFull(resolved);
+
+    if (boardSnapshot(current) === before) break; // stable — nothing changed
+  }
+
+  return { board: current, cleared: totalCleared, chains: totalChains };
 }
 
 // ── Penalty system ────────────────────────────────────────────────────────────

@@ -32,8 +32,7 @@ import {
   slideMainRowLeft,
   slideMainRowRight,
   isBoardFull,
-  resolveMatches,
-  ensureMainRowFull,
+  settleBoard,
   addPenaltyBall,
   setBallTypes,
   getAIMove,
@@ -78,9 +77,10 @@ function applySlide(state, playerIdx, slidedBoard) {
   let winner     = null;
   let message    = '';
 
-  // Resolve matches, then guarantee the main row stays full
-  const { board: resolved, cleared, chains } = resolveMatches(slidedBoard);
-  boards[playerIdx] = ensureMainRowFull(resolved);
+  // Resolve matches, top up the main row, and keep settling until stable
+  // (catches chain matches formed by newly-spawned balls).
+  const { board: settled, cleared, chains } = settleBoard(slidedBoard);
+  boards[playerIdx] = settled;
 
   if (cleared > 0) {
     const gain = cleared * SCORE_PER_BALL + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
@@ -436,7 +436,6 @@ const BoardWithControls = React.memo(({
             >
               {row.map((cell, colIdx) => {
                 const isMain = rowIdx === MAIN_ROW;
-                const isSel  = colIdx === selectedCol && selectedCol >= 0;
                 return (
                   <View
                     key={colIdx}
@@ -444,8 +443,6 @@ const BoardWithControls = React.memo(({
                       styles.cell,
                       { width: cellSize, height: cellSize },
                       isMain && styles.mainCell,
-                      isSel  && styles.selCell,
-                      isMain && isSel && styles.mainSelCell,
                     ]}
                   />
                 );
@@ -871,20 +868,6 @@ const styles = StyleSheet.create({
   },
   mainCell: {
     borderColor: '#3A2000',
-  },
-  // Selected column — blue frame lines left + right
-  selCell: {
-    borderLeftWidth: 2.5,
-    borderLeftColor: '#3388FF',
-    borderRightWidth: 2.5,
-    borderRightColor: '#3388FF',
-  },
-  // Selected column inside main row — inherit both frames (blue sides, gold handled by mainRowBg)
-  mainSelCell: {
-    borderLeftWidth: 2.5,
-    borderLeftColor: '#3388FF',
-    borderRightWidth: 2.5,
-    borderRightColor: '#3388FF',
   },
 
   // Row slide buttons
