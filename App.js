@@ -37,14 +37,25 @@ function useMobileWebSetup() {
     setMeta('apple-mobile-web-app-status-bar-style', 'black-translucent');
     setMeta('mobile-web-app-capable', 'yes');
 
+    // Tell the browser this page is intentionally dark-themed. Without this,
+    // some Android Chrome builds apply their own "force dark" colour
+    // transform to pages it thinks are light-themed, which dims/desaturates
+    // our bright marble colours (e.g. red/blue/green render as muted
+    // navy/maroon/dark-green). Declaring `color-scheme: dark` opts the page
+    // out of that automatic recolouring so our palette renders as authored.
+    setMeta('color-scheme', 'dark');
+    setMeta('supported-color-schemes', 'dark');
+
     const style = document.createElement('style');
     style.textContent = `
+      :root { color-scheme: dark; }
       html, body, #root { height: 100%; overscroll-behavior: none; }
       body {
         touch-action: pan-x pan-y;
         -webkit-user-select: none;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
+        forced-color-adjust: none;
       }
     `;
     document.head.appendChild(style);
