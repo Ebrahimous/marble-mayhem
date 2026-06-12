@@ -296,8 +296,8 @@ export default function GameScreen({ navigation, route }) {
 
   // Recompute board sizing whenever the viewport changes (resize/orientation).
   // Solo modes render a single board, so it can use nearly the full width.
-  const { width: winWidth } = useWindowDimensions();
-  const { cellSize, boardPx } = getBoardMetrics(winWidth, isSolo ? 1 : 2);
+  const { width: winWidth, height: winHeight } = useWindowDimensions();
+  const { cellSize, boardPx } = getBoardMetrics(winWidth, isSolo ? 1 : 2, winHeight);
 
   const [state, dispatch] = useReducer(gameReducer, undefined, () =>
     createInitialState(mode, ballCount)

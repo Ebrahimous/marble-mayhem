@@ -1,29 +1,45 @@
 import { Dimensions } from 'react-native';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 // ── Board dimensions ──────────────────────────────────────────────────────────
 export const COLS = 5;   // columns per player (matches original)
 export const ROWS = 9;   // rows per board
 
 /**
- * Compute board sizing for a given viewport width.
+ * Compute board sizing for a given viewport size.
  *
  * `boardCount` is 1 for solo modes (single board gets nearly the full
  * screen width — much bigger cells) or 2 for head-to-head modes (each
  * board takes just under half the screen width, capped at 500px so
  * desktop browsers still render a phone-sized layout).
  *
+ * For solo modes, `windowHeight` is also used so the cell size shrinks on
+ * shorter screens — keeping the whole board on-screen with some breathing
+ * room at the bottom, instead of always maxing out cell size by width alone.
+ *
  * Used reactively (via useWindowDimensions) so the layout adapts immediately
  * when the browser window is resized — handy for testing mobile sizes.
  */
-export function getBoardMetrics(windowWidth, boardCount = 2) {
+export function getBoardMetrics(windowWidth, boardCount = 2, windowHeight) {
   const w = windowWidth || width;
+  const h = windowHeight || height;
 
   if (boardCount === 1) {
     const boardWidth = Math.min(w, 480) - 24;
-    const cellSize   = Math.min(76, Math.floor(boardWidth / COLS));
-    const boardPx    = cellSize * COLS;
+
+    // Reserve space for the header, message row, board label, and a bit of
+    // bottom margin so the board doesn't run flush to the edge of the screen.
+    const verticalOverhead = 150;
+    const bottomMargin     = 24;
+    const availableHeight  = h - verticalOverhead - bottomMargin;
+
+    const cellSize = Math.min(
+      76,
+      Math.floor(boardWidth / COLS),
+      Math.floor(availableHeight / ROWS)
+    );
+    const boardPx = cellSize * COLS;
     return { cellSize, boardPx };
   }
 
