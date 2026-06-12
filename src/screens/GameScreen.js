@@ -349,10 +349,12 @@ export default function GameScreen({ navigation, route }) {
   const mode      = route?.params?.mode ?? 'ai';
   const ballCount = route?.params?.ballCount ?? 5;
   const insets = useSafeAreaInsets();
+  const isSolo  = mode === 'solo-time' || mode === 'solo-normal';
 
-  // Recompute board sizing whenever the viewport changes (resize/orientation)
+  // Recompute board sizing whenever the viewport changes (resize/orientation).
+  // Solo modes render a single board, so it can use nearly the full width.
   const { width: winWidth } = useWindowDimensions();
-  const { cellSize, boardPx } = getBoardMetrics(winWidth);
+  const { cellSize, boardPx } = getBoardMetrics(winWidth, isSolo ? 1 : 2);
 
   const [state, dispatch] = useReducer(gameReducer, undefined, () =>
     createInitialState(mode, ballCount)
@@ -460,7 +462,6 @@ export default function GameScreen({ navigation, route }) {
 
   const { boards, scores, gameOver, winner, message, selectedCol, paused, timeLeft } = state;
   const p2Label = mode === 'ai' ? 'CPU' : 'P2';
-  const isSolo  = mode === 'solo-time' || mode === 'solo-normal';
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (

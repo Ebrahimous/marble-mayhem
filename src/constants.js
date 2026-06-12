@@ -8,14 +8,25 @@ export const ROWS = 9;   // rows per board
 
 /**
  * Compute board sizing for a given viewport width.
- * Each board takes just under half the screen width, capped at 500px so
- * desktop browsers still render a phone-sized layout.
+ *
+ * `boardCount` is 1 for solo modes (single board gets nearly the full
+ * screen width — much bigger cells) or 2 for head-to-head modes (each
+ * board takes just under half the screen width, capped at 500px so
+ * desktop browsers still render a phone-sized layout).
  *
  * Used reactively (via useWindowDimensions) so the layout adapts immediately
  * when the browser window is resized — handy for testing mobile sizes.
  */
-export function getBoardMetrics(windowWidth) {
+export function getBoardMetrics(windowWidth, boardCount = 2) {
   const w = windowWidth || width;
+
+  if (boardCount === 1) {
+    const boardWidth = Math.min(w, 480) - 24;
+    const cellSize   = Math.min(76, Math.floor(boardWidth / COLS));
+    const boardPx    = cellSize * COLS;
+    return { cellSize, boardPx };
+  }
+
   const boardWidth = Math.floor((Math.min(w, 500) - 14) / 2);
   const cellSize   = Math.min(52, Math.floor(boardWidth / COLS));
   const boardPx    = cellSize * COLS;
