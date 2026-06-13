@@ -10,7 +10,7 @@ import React, {
   useReducer, useEffect, useRef, useCallback, useState,
 } from 'react';
 import {
-  View, Text, TouchableOpacity, Animated,
+  View, Text, TouchableOpacity, Animated, Easing,
   StyleSheet, PanResponder, ScrollView, useWindowDimensions, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -52,6 +52,7 @@ function createInitialState(mode, ballCount = 5) {
     ballCount,
     boards:      isSolo ? [createInitialBoard()] : [createInitialBoard(), createInitialBoard()],
     scores:      isSolo ? [0] : [0, 0],
+    combos:      isSolo ? [0] : [0, 0],
     gameOver:    false,
     winner:      null,
     message:     '',
@@ -75,6 +76,7 @@ function formatTime(sec) {
 function applySlide(state, playerIdx, slidedBoard) {
   const boards   = state.boards.map(b => cloneBoard(b));
   const scores   = [...state.scores];
+  const combos   = [...(state.combos ?? boards.map(() => 0))];
   let gameOver   = false;
   let winner     = null;
   let message    = '';
@@ -85,9 +87,19 @@ function applySlide(state, playerIdx, slidedBoard) {
   boards[playerIdx] = settled;
 
   if (cleared > 0) {
-    const gain = cleared * SCORE_PER_BALL + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
+    // Consecutive matching moves build a combo streak (resets on a move
+    // that clears nothing); each combo step adds +25% score, capped at
+    // +100% from combo 5 onward.
+    combos[playerIdx] = (combos[playerIdx] ?? 0) + 1;
+    const combo = combos[playerIdx];
+    const multiplier = 1 + Math.min(combo - 1, 4) * 0.25;
+
+    const rawGain = cleared * SCORE_PER_BALL + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
+    const gain = Math.round(rawGain * multiplier);
     scores[playerIdx] += gain;
-    message = chains > 1 ? `${chains}× CHAIN! +${gain}` : `+${gain}`;
+
+    const comboTxt = combo > 1 ? ` ×${combo} COMBO` : '';
+    message = chains > 1 ? `${chains}× CHAIN! +${gain}${comboTxt}` : `+${gain}${comboTxt}`;
 
     // One penalty ball per chain-round (head-to-head modes only)
     if (boards.length > 1) {
@@ -98,6 +110,9 @@ function applySlide(state, playerIdx, slidedBoard) {
         if (lost) { gameOver = true; winner = playerIdx; }
       }
     }
+  } else {
+    // A move that clears nothing breaks that player's combo streak.
+    combos[playerIdx] = 0;
   }
 
   // Solo "Endless" mode ends once the board is completely full — stuck
@@ -109,6 +124,7 @@ function applySlide(state, playerIdx, slidedBoard) {
     ...state,
     boards,
     scores,
+    combos,
     gameOver,
     winner,
     message,
@@ -200,8 +216,17 @@ function gameReducer(state, action) {
 
 // ── Ball fall/clear animation ─────────────────────────────────────────────────
 
-const FALL_DURATION  = 220;  // ms — gravity slide into new position
-const CLEAR_DURATION = 180;  // ms — matched balls shrinking/fading out
+const FALL_DURATION    = 220;  // ms — gravity slide into new position
+const CLEAR_DURATION   = 180;  // ms — matched balls shrinking/fading out
+const POP_DURATION     = 110;  // ms — matched balls popping/flashing before clearing
+const SQUASH_DURATION  = 90;   // ms — landing squash (compress)
+const RECOVER_DURATION = 140;  // ms — landing recovery (squash → normal, with overshoot)
+
+// Eased curves: arrivals decelerate (cubic ease-out); the landing recovery
+// overshoots slightly past 1 then settles, for a little "bounce" on impact.
+const SLIDE_EASING   = Easing.out(Easing.cubic);
+const SQUASH_EASING  = Easing.out(Easing.quad);
+const RECOVER_EASING = Easing.out(Easing.back(1.6));
 
 /** Call `fn(ball, row, col)` for every occupied cell on the board. */
 function forEachCell(board, fn) {
@@ -211,6 +236,18 @@ function forEachCell(board, fn) {
       if (cell) fn(cell, r, c);
     }
   }
+}
+
+/**
+ * Quick squash-and-recover "landing" bounce on a ball's vertical scale —
+ * played when a ball arrives after falling/rising into a new cell.
+ */
+function landingBounce(scaleY) {
+  scaleY.setValue(1);
+  Animated.sequence([
+    Animated.timing(scaleY, { toValue: 0.72, duration: SQUASH_DURATION, easing: SQUASH_EASING, useNativeDriver: false }),
+    Animated.timing(scaleY, { toValue: 1, duration: RECOVER_DURATION, easing: RECOVER_EASING, useNativeDriver: false }),
+  ]).start();
 }
 
 /**
@@ -226,9 +263,13 @@ function forEachCell(board, fn) {
  * to render inside an absolutely-positioned overlay the size of the board.
  */
 function useBallAnimations(board, cellSize) {
-  const animsRef = useRef(new Map()); // id -> { top, left, opacity, type, row, col }
+  const animsRef = useRef(new Map()); // id -> { top, left, scaleY, opacity, type, row, col }
   const prevRef  = useRef(null);
   const [ghosts, setGhosts] = useState([]);
+
+  // Full board width — used to slide wrapped main-row balls in from the
+  // opposite edge instead of sliding them across the whole board.
+  const boardWidth = cellSize * COLS;
 
   // Re-snap all balls to their grid position when cellSize changes (resize),
   // without animating.
@@ -257,6 +298,7 @@ function useBallAnimations(board, cellSize) {
         animsRef.current.set(ball.id, {
           top: new Animated.Value(row * cellSize),
           left: new Animated.Value(col * cellSize),
+          scaleY: new Animated.Value(1),
           opacity: new Animated.Value(1),
           type: ball.type,
           row, col,
@@ -270,6 +312,7 @@ function useBallAnimations(board, cellSize) {
 
     const seen = new Set();
     const moves = [];
+    const bounces = []; // scaleY values that should play a landing bounce
 
     forEachCell(board, (ball, row, col) => {
       seen.add(ball.id);
@@ -289,6 +332,7 @@ function useBallAnimations(board, cellSize) {
         entry = {
           top: new Animated.Value(startTop),
           left: new Animated.Value(targetLeft),
+          scaleY: new Animated.Value(1),
           opacity: new Animated.Value(0),
           type: ball.type,
           row, col,
@@ -296,25 +340,44 @@ function useBallAnimations(board, cellSize) {
         animsRef.current.set(ball.id, entry);
         sfx.playSpawn(ball.spawnSide);
         moves.push(Animated.parallel([
-          Animated.timing(entry.top,     { toValue: targetTop, duration: FALL_DURATION, useNativeDriver: false }),
-          Animated.timing(entry.opacity, { toValue: 1,         duration: FALL_DURATION, useNativeDriver: false }),
+          Animated.timing(entry.top,     { toValue: targetTop, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false }),
+          Animated.timing(entry.opacity, { toValue: 1,         duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false }),
         ]));
+        bounces.push(entry.scaleY);
       } else {
         entry.type = ball.type;
         entry.row = row;
         entry.col = col;
         if (!old || old.row !== row || old.col !== col) {
-          // Existing ball moved (gravity / slide) — slide to its new cell.
-          moves.push(Animated.parallel([
-            Animated.timing(entry.top,  { toValue: targetTop,  duration: FALL_DURATION, useNativeDriver: false }),
-            Animated.timing(entry.left, { toValue: targetLeft, duration: FALL_DURATION, useNativeDriver: false }),
-          ]));
+          // A MAIN_ROW ball whose column index jumped by COLS-1 wrapped
+          // around the row slide (e.g. col 0 → col COLS-1) — rather than
+          // sliding it visibly across every other column, jump it just off
+          // the edge it's entering from and slide it in to its new cell.
+          const isWrap = old && row === MAIN_ROW && old.row === MAIN_ROW
+            && COLS > 2 && Math.abs(col - old.col) === COLS - 1;
+
+          if (isWrap) {
+            const enteringFromRight = col > old.col;
+            entry.top.setValue(targetTop);
+            entry.left.setValue(enteringFromRight ? boardWidth : -cellSize);
+            moves.push(
+              Animated.timing(entry.left, { toValue: targetLeft, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
+            );
+          } else {
+            // Existing ball moved (gravity / slide) — slide to its new cell.
+            moves.push(Animated.parallel([
+              Animated.timing(entry.top,  { toValue: targetTop,  duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false }),
+              Animated.timing(entry.left, { toValue: targetLeft, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false }),
+            ]));
+            if (old.row !== row) bounces.push(entry.scaleY);
+          }
         }
       }
     });
 
-    // Balls present before but gone now were matched — shrink/fade them out
-    // in place rather than letting them vanish instantly.
+    // Balls present before but gone now were matched — pop/flash them
+    // briefly, then shrink/fade them out in place rather than letting them
+    // vanish instantly.
     const removed = [];
     prevMap.forEach((pos, id) => {
       if (seen.has(id)) return;
@@ -329,15 +392,25 @@ function useBallAnimations(board, cellSize) {
         left: entry?.left ?? new Animated.Value(pos.col * cellSize),
         opacity: entry?.opacity ?? new Animated.Value(1),
         scale: new Animated.Value(1),
+        glow: new Animated.Value(0),
       });
     });
 
     if (removed.length) {
       setGhosts(g => [...g, ...removed]);
       removed.forEach((gh) => {
-        Animated.parallel([
-          Animated.timing(gh.opacity, { toValue: 0,   duration: CLEAR_DURATION, useNativeDriver: false }),
-          Animated.timing(gh.scale,   { toValue: 0.25, duration: CLEAR_DURATION, useNativeDriver: false }),
+        Animated.sequence([
+          // Pop: brief scale-up + white flash to highlight the match.
+          Animated.parallel([
+            Animated.timing(gh.scale, { toValue: 1.3,  duration: POP_DURATION, easing: SQUASH_EASING, useNativeDriver: false }),
+            Animated.timing(gh.glow,  { toValue: 0.85, duration: POP_DURATION, useNativeDriver: false }),
+          ]),
+          // Then shrink/fade out.
+          Animated.parallel([
+            Animated.timing(gh.opacity, { toValue: 0,    duration: CLEAR_DURATION, useNativeDriver: false }),
+            Animated.timing(gh.scale,   { toValue: 0.25, duration: CLEAR_DURATION, useNativeDriver: false }),
+            Animated.timing(gh.glow,    { toValue: 0,    duration: CLEAR_DURATION, useNativeDriver: false }),
+          ]),
         ]).start(() => {
           setGhosts(g => g.filter(x => x.id !== gh.id));
         });
@@ -345,6 +418,10 @@ function useBallAnimations(board, cellSize) {
     }
 
     if (moves.length) Animated.parallel(moves).start();
+    // Landing bounces start once the fall/slide tween finishes.
+    if (bounces.length) {
+      setTimeout(() => bounces.forEach(landingBounce), FALL_DURATION);
+    }
   }, [board, cellSize]);
 
   const elements = [];
@@ -357,7 +434,10 @@ function useBallAnimations(board, cellSize) {
         key={ball.id}
         style={[
           styles.ballSlot,
-          { width: cellSize, height: cellSize, top: a.top, left: a.left, opacity: a.opacity },
+          {
+            width: cellSize, height: cellSize, top: a.top, left: a.left,
+            opacity: a.opacity, transform: [{ scaleY: a.scaleY }],
+          },
         ]}
       >
         <BallView type={a.type} size={cellSize} />
@@ -377,6 +457,7 @@ function useBallAnimations(board, cellSize) {
           },
         ]}
       >
+        <Animated.View style={[styles.ghostGlow, { opacity: gh.glow }]} />
         <BallView type={gh.type} size={cellSize} />
       </Animated.View>
     );
@@ -495,6 +576,22 @@ const BoardWithControls = React.memo(({
           ))}
         </View>
 
+        {/* Keyboard column selection highlight (P1/solo board only —
+            other boards pass selectedCol={-1}). */}
+        {selectedCol >= 0 && selectedCol < COLS && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.selectedColHighlight,
+              {
+                left: 1 + selectedCol * cellSize,
+                width: cellSize,
+                height: cellSize * board.length,
+              },
+            ]}
+          />
+        )}
+
         {/* Balls render in their own absolutely-positioned layer so they can
             animate (falling/gravity, fade in/out) independently of the grid. */}
         <View
@@ -519,8 +616,9 @@ const BoardWithControls = React.memo(({
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export default function GameScreen({ navigation, route }) {
-  const mode      = route?.params?.mode ?? 'ai';
-  const ballCount = route?.params?.ballCount ?? 5;
+  const mode        = route?.params?.mode ?? 'ai';
+  const ballCount   = route?.params?.ballCount ?? 5;
+  const aiDifficulty = route?.params?.aiDifficulty ?? DEFAULT_AI_DIFFICULTY;
   const insets = useSafeAreaInsets();
   const isSolo  = mode === 'solo-time' || mode === 'solo-normal';
 
@@ -546,10 +644,10 @@ export default function GameScreen({ navigation, route }) {
   // ── AI timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'ai' || state.gameOver || state.paused) return;
-    const delay = AI_DELAY[DEFAULT_AI_DIFFICULTY];
+    const delay = AI_DELAY[aiDifficulty] ?? AI_DELAY[DEFAULT_AI_DIFFICULTY];
     const t = setTimeout(() => dispatch({ type: 'AI_MOVE' }), delay);
     return () => clearTimeout(t);
-  }, [state.aiTick, state.gameOver, state.paused, mode]);
+  }, [state.aiTick, state.gameOver, state.paused, mode, aiDifficulty]);
 
   // ── Solo Time Attack countdown ────────────────────────────────────────────────
   useEffect(() => {
@@ -934,6 +1032,16 @@ const styles = StyleSheet.create({
   },
   boardRow: { flexDirection: 'row' },
 
+  // Highlight bar for the keyboard-selected column (P1/solo board).
+  selectedColHighlight: {
+    position: 'absolute',
+    top: 1,
+    backgroundColor: 'rgba(30,144,255,0.10)',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(30,144,255,0.30)',
+  },
+
   // Ball layer — absolutely positioned overlay on top of the (now empty)
   // grid cells. Each ball is an Animated.View positioned via top/left so it
   // can slide smoothly between cells (gravity / clears).
@@ -946,6 +1054,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // White flash rendered behind a matched ball during its "pop" before it
+  // shrinks/fades out — see useBallAnimations().
+  ghostGlow: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
   },
 
   // Main row — gold frame lines top + bottom

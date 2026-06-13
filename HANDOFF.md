@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-11_
+_Last updated: 2026-06-13_
 
 ## Current state
 
@@ -163,13 +163,71 @@ confirming the toggle persists across app restarts.
 Also note: `check.js` (stray debug file from an earlier session) still
 can't be deleted (`EPERM`); its contents remain a single harmless comment.
 
+## Session 2026-06-13 (animation polish + AI difficulty + combo mechanic)
+
+Six improvements to ball-movement feel and gameplay depth:
+
+- `src/screens/GameScreen.js`:
+  - **Main-row wrap fix**: when a ball moves between col 0 and col
+    `COLS-1` in MAIN_ROW (a row-slide wrap), it now slides in from the
+    correct off-screen edge (`boardWidth` or `-cellSize`) instead of
+    sliding the long way across the board.
+  - **Easing + landing bounce**: added `Easing` import, new timing
+    constants (`FALL_DURATION`, `CLEAR_DURATION`, `POP_DURATION`,
+    `SQUASH_DURATION`, `RECOVER_DURATION`) and `SLIDE_EASING` /
+    `SQUASH_EASING` / `RECOVER_EASING`. Falls/slides use
+    `Easing.out(Easing.cubic)`; any ball that changes row now plays a
+    squash-and-recover (`landingBounce`) via a new per-ball `scaleY`
+    Animated.Value, rendered as `transform: [{ scaleY }]`.
+  - **Match-highlight pop**: matched balls ("ghosts") now pop
+    (scale 1 → 1.3 with a white `ghostGlow` overlay fading in) before
+    shrinking/fading out, instead of fading immediately. New `glow`
+    Animated.Value + `ghostGlow` style.
+  - **Selected-column highlight**: the keyboard-selected column (P1/solo
+    board) now renders a translucent blue overlay (`selectedColHighlight`
+    style) spanning the full board height.
+  - **AI difficulty selector**: `GameScreen` now reads
+    `route.params.aiDifficulty` (falls back to `DEFAULT_AI_DIFFICULTY`)
+    and uses it to pick the AI move delay from the existing `AI_DELAY`
+    map (easy/normal/hard, already defined in `constants.js` but
+    previously unreachable).
+  - **Combo multiplier**: new `combos` array in state (per-player streak
+    count). Each consecutive clearing move increments the streak and adds
+    +25% score per step (capped at +100% from combo 5+); a non-clearing
+    move resets the streak to 0. Score message shows `×N COMBO` when
+    `N > 1`.
+- `src/screens/MenuScreen.js`:
+  - "VS COMPUTER" button now opens a new AI-difficulty picker modal
+    (Easy 🙂 / Normal 😐 / Hard 😈), styled like the existing Solo picker.
+    Selecting a difficulty persists it to `AsyncStorage` (`aiDifficulty`)
+    and navigates with `{ mode: 'ai', aiDifficulty }`. New `playAI()`
+    helper, `sheetSubtitle` and `modeBtnSelected` (gold border on the
+    current difficulty) styles.
+
+Verified via Read tool — the sandbox bash mount is still serving a stale
+snapshot of these files (confirmed again this session: `wc -l` reports far
+fewer lines than the real files), so Babel/`expo export` checks via the
+sandbox shell remain untrustworthy and were skipped per the established
+practice from the 2026-06-11 sessions. All edits applied cleanly (no Edit
+tool mismatches) and every changed region was re-read in full and is
+syntactically valid JS/JSX. **Manual browser playtest is still the next
+real verification step** — in particular, check the main-row wrap slide
+direction in both directions, the landing-bounce on column slides, the
+match pop-glow timing, the selected-column highlight on a non-default
+column, all three AI difficulties feel distinct, and that combo messages
+(`×2 COMBO`, `×3 COMBO`, ...) appear on consecutive clears and reset after
+a non-clearing move.
+
 ## What's next (in priority order)
 
 1. Manual playtest in browser (`npm run web`): pause/resume mid-game, Time
    Attack countdown + game-over, Endless until stuck, solo high-score saving,
-   and the new 5/6 ball-count toggle (verify persistence + correct palette).
-   No playtest has happened yet — this is the first thing to do.
+   the 5/6 ball-count toggle, and all six items from the 2026-06-13 session
+   above (wrap slide, landing bounce, match pop, column highlight, AI
+   difficulty, combo multiplier). No playtest has happened yet — this is the
+   first thing to do.
 2. Low priority / not yet requested: update MenuScreen "How to Play" modal to
-   reflect Prototype 2.0 mechanics (push-from-below copy is outdated).
+   reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
+   also doesn't mention combos or AI difficulty).
 3. Native build (iOS/Android via `expo build`/EAS) remains a future option —
    keep changes framework-agnostic, no web-only forks of game logic.

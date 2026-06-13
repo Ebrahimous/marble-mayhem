@@ -6,7 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BallView from '../components/BallView';
-import { CELL_SIZE, BALL_TYPES_5, BALL_TYPES_6 } from '../constants';
+import { CELL_SIZE, BALL_TYPES_5, BALL_TYPES_6, DEFAULT_AI_DIFFICULTY } from '../constants';
 import * as sfx from '../sounds';
 
 export default function MenuScreen({ navigation }) {
@@ -14,16 +14,19 @@ export default function MenuScreen({ navigation }) {
   const [high, setHigh]           = useState(0);
   const [showHelp, setHelp]       = useState(false);
   const [showSolo, setSolo]       = useState(false);
+  const [showAI, setShowAI]       = useState(false);
   const [showSettings, setSettings] = useState(false);
   const [ballCount, setBallCount] = useState(5);
   const [tapToMove, setTapToMove] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
+  const [aiDifficulty, setAiDifficulty] = useState(DEFAULT_AI_DIFFICULTY);
 
   useEffect(() => {
     AsyncStorage.getItem('highScore').then(v => v && setHigh(parseInt(v, 10)));
     AsyncStorage.getItem('ballCount').then(v => v && setBallCount(parseInt(v, 10)));
     AsyncStorage.getItem('tapToMove').then(v => setTapToMove(v === 'true'));
     AsyncStorage.getItem('soundMuted').then(v => setSoundOn(v !== 'true'));
+    AsyncStorage.getItem('aiDifficulty').then(v => v && setAiDifficulty(v));
   }, []);
 
   const toggleBallCount = () => {
@@ -46,7 +49,14 @@ export default function MenuScreen({ navigation }) {
     sfx.playClick();
   };
 
-  const play = (mode) => { sfx.playClick(); navigation.navigate('Game', { mode, ballCount }); };
+  const play = (mode, extra = {}) => { sfx.playClick(); navigation.navigate('Game', { mode, ballCount, ...extra }); };
+
+  const playAI = (difficulty) => {
+    setAiDifficulty(difficulty);
+    AsyncStorage.setItem('aiDifficulty', difficulty);
+    setShowAI(false);
+    play('ai', { aiDifficulty: difficulty });
+  };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -115,7 +125,11 @@ export default function MenuScreen({ navigation }) {
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.modeBtn} onPress={() => play('ai')} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.modeBtn}
+          onPress={() => { sfx.playClick(); setShowAI(true); }}
+          activeOpacity={0.8}
+        >
           <Text style={styles.modeBtnIcon}>🤖</Text>
           <View>
             <Text style={styles.modeBtnLabel}>VS COMPUTER</Text>
@@ -270,6 +284,56 @@ export default function MenuScreen({ navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* AI difficulty picker */}
+      <Modal visible={showAI} animationType="slide" transparent onRequestClose={() => setShowAI(false)}>
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
+            <Text style={styles.sheetTitle}>VS Computer</Text>
+            <Text style={styles.sheetSubtitle}>Choose AI difficulty</Text>
+
+            <TouchableOpacity
+              style={[styles.modeBtn, aiDifficulty === 'easy' && styles.modeBtnSelected]}
+              onPress={() => playAI('easy')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modeBtnIcon}>🙂</Text>
+              <View>
+                <Text style={styles.modeBtnLabel}>EASY</Text>
+                <Text style={styles.modeBtnSub}>CPU reacts slowly</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modeBtn, styles.modeBtnAlt, aiDifficulty === 'normal' && styles.modeBtnSelected]}
+              onPress={() => playAI('normal')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modeBtnIcon}>😐</Text>
+              <View>
+                <Text style={styles.modeBtnLabel}>NORMAL</Text>
+                <Text style={styles.modeBtnSub}>Balanced challenge</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modeBtn, styles.modeBtnAlt, aiDifficulty === 'hard' && styles.modeBtnSelected]}
+              onPress={() => playAI('hard')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modeBtnIcon}>😈</Text>
+              <View>
+                <Text style={styles.modeBtnLabel}>HARD</Text>
+                <Text style={styles.modeBtnSub}>CPU reacts fast — tough!</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setShowAI(false); }}>
+              <Text style={styles.sheetCloseTxt}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -375,6 +439,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#2ED573',
     shadowColor: '#2ED573',
   },
+  modeBtnSelected: {
+    borderWidth: 2,
+    borderColor: '#FFD700',
+  },
   modeBtnIcon:  { fontSize: 28 },
   modeBtnLabel: { color: '#FFF', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   modeBtnSub:   { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 },
@@ -392,6 +460,7 @@ const styles = StyleSheet.create({
     maxHeight: '80%',
   },
   sheetTitle: { color: '#FFF', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
+  sheetSubtitle: { color: '#666', fontSize: 12, textAlign: 'center', marginTop: -12, marginBottom: 16, letterSpacing: 1 },
   sheetClose: {
     marginTop: 16,
     backgroundColor: '#1E90FF',
