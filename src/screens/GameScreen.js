@@ -292,7 +292,7 @@ function landingBounce(scaleY) {
  * Returns an array of <Animated.View> elements (one per ball + ghost) ready
  * to render inside an absolutely-positioned overlay the size of the board.
  */
-function useBallAnimations(board, cellSize) {
+function useBallAnimations(board, cellSize, dragInfo) {
   const animsRef = useRef(new Map()); // id -> { top, left, scaleY, opacity, type, row, col }
   const prevRef  = useRef(null);
   const [ghosts, setGhosts] = useState([]);
@@ -456,9 +456,20 @@ function useBallAnimations(board, cellSize) {
 
   const elements = [];
 
-  forEachCell(board, (ball) => {
+  forEachCell(board, (ball, row, col) => {
     const a = animsRef.current.get(ball.id);
     if (!a) return;
+    const transform = [{ scaleY: a.scaleY }];
+    // Live touch-drag preview: while the player is dragging, offset every
+    // ball in the dragged column (vertical drag) or the whole main row
+    // (horizontal drag) by the live finger-tracking Animated.Value. Match
+    // resolution is untouched — it only runs once the real board state
+    // changes on release.
+    if (dragInfo && dragInfo.axis === 'col' && col === dragInfo.index) {
+      transform.push({ translateY: dragInfo.offset });
+    } else if (dragInfo && dragInfo.axis === 'row' && row === MAIN_ROW) {
+      transform.push({ translateX: dragInfo.offset });
+    }
     elements.push(
       <Animated.View
         key={ball.id}
@@ -466,7 +477,7 @@ function useBallAnimations(board, cellSize) {
           styles.ballSlot,
           {
             width: cellSize, height: cellSize, top: a.top, left: a.left,
-            opacity: a.opacity, transform: [{ scaleY: a.scaleY }],
+            opacity: a.opacity, transform,
           },
         ]}
       >
@@ -514,6 +525,22 @@ const BoardWithControls = React.memo(({
   const gestureStart   = useRef({ col: 0, row: 0, x: 0 });
   const gestureHandled = useRef(false);
 
+  // Live touch-drag preview state: while dragging, `dragAxisRef` tracks
+  // whether the gesture is sliding a column ('col') or the main row ('row'),
+  // and `dragOffset` is the live pixel offset applied as a transform to the
+  // affected balls (see useBallAnimations). `dragInfo` mirrors the axis/index
+  // in state so the render picks up which balls should get the transform.
+  const dragAxisRef = useRef(null); // null | 'col' | 'row' | 'none'
+  const dragOffset  = useRef(new Animated.Value(0)).current;
+  const [dragInfo, setDragInfo] = useState({ axis: null, index: -1, offset: dragOffset });
+
+  const resetDrag = () => {
+    Animated.timing(dragOffset, {
+      toValue: 0, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false,
+    }).start(() => setDragInfo({ axis: null, index: -1, offset: dragOffset }));
+    dragAxisRef.current = null;
+  };
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => !cbRef.current.disabled,
@@ -525,6 +552,7 @@ const BoardWithControls = React.memo(({
       onMoveShouldSetPanResponderCapture: (_, g) =>
         !cbRef.current.disabled && (Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6),
       onShouldBlockNativeResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
 
       onPanResponderGrant: (e) => {
         const cs = cbRef.current.cellSize;
@@ -535,10 +563,45 @@ const BoardWithControls = React.memo(({
           x,
         };
         gestureHandled.current = false;
+        dragAxisRef.current = null;
+        dragOffset.setValue(0);
+      },
+
+      // Live-follow: as the finger moves, translate the dragged column (or
+      // main row) so it visually tracks the touch. No match resolution or
+      // dispatch happens here — that only occurs on release.
+      onPanResponderMove: (_, g) => {
+        if (cbRef.current.disabled) return;
+        const cs = cbRef.current.cellSize;
+        const { col, row } = gestureStart.current;
+        const absX = Math.abs(g.dx);
+        const absY = Math.abs(g.dy);
+
+        if (!dragAxisRef.current) {
+          if (Math.max(absX, absY) < 6) return;
+          if (absY >= absX) {
+            dragAxisRef.current = 'col';
+            setDragInfo({ axis: 'col', index: col, offset: dragOffset });
+          } else if (row === MAIN_ROW) {
+            dragAxisRef.current = 'row';
+            setDragInfo({ axis: 'row', index: MAIN_ROW, offset: dragOffset });
+          } else {
+            dragAxisRef.current = 'none';
+          }
+        }
+
+        if (dragAxisRef.current === 'col') {
+          dragOffset.setValue(Math.max(-cs, Math.min(cs, g.dy)));
+        } else if (dragAxisRef.current === 'row') {
+          dragOffset.setValue(Math.max(-cs, Math.min(cs, g.dx)));
+        }
       },
 
       onPanResponderRelease: (_, g) => {
-        if (gestureHandled.current || cbRef.current.disabled) return;
+        if (gestureHandled.current || cbRef.current.disabled) {
+          resetDrag();
+          return;
+        }
         const { col, row, x } = gestureStart.current;
         const absX = Math.abs(g.dx);
         const absY = Math.abs(g.dy);
@@ -570,11 +633,17 @@ const BoardWithControls = React.memo(({
           }
           gestureHandled.current = true;
         }
+
+        resetDrag();
+      },
+
+      onPanResponderTerminate: () => {
+        resetDrag();
       },
     })
   ).current;
 
-  const ballElements = useBallAnimations(board, cellSize);
+  const ballElements = useBallAnimations(board, cellSize, dragInfo);
 
   return (
     <View style={styles.boardCtrl}>
@@ -656,6 +725,11 @@ export default function GameScreen({ navigation, route }) {
   // Solo modes render a single board, so it can use nearly the full width.
   const { width: winWidth, height: winHeight } = useWindowDimensions();
   const { cellSize, boardPx } = getBoardMetrics(winWidth, isSolo ? 1 : 2, winHeight);
+
+  // The keyboard-selected-column highlight only makes sense on desktop
+  // (where arrow keys drive column selection) — hide it on narrow/mobile
+  // viewports where it just shows as a stray blue line.
+  const isMobile = winWidth < 768;
 
   const [state, dispatch] = useReducer(gameReducer, undefined, () =>
     createInitialState(mode, ballCount)
@@ -928,7 +1002,7 @@ export default function GameScreen({ navigation, route }) {
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}
               disabled={gameOver || paused}
-              selectedCol={selectedCol}
+              selectedCol={isMobile ? -1 : selectedCol}
               cellSize={cellSize}
               boardPx={boardPx}
               tapToMove={tapToMove}
@@ -943,7 +1017,7 @@ export default function GameScreen({ navigation, route }) {
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}
               disabled={gameOver || paused}
-              selectedCol={selectedCol}
+              selectedCol={isMobile ? -1 : selectedCol}
               cellSize={cellSize}
               boardPx={boardPx}
               tapToMove={tapToMove}
@@ -1101,120 +1175,4 @@ const styles = StyleSheet.create({
   }),
 
   // Board grid
-  boardGrid: {
-    backgroundColor: '#0D0D22',
-    borderRadius: 6,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#1E1E44',
-  },
-  boardRow: { flexDirection: 'row' },
-
-  // Highlight bar for the keyboard-selected column (P1/solo board).
-  selectedColHighlight: {
-    position: 'absolute',
-    top: 1,
-    backgroundColor: 'rgba(30,144,255,0.10)',
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: 'rgba(30,144,255,0.30)',
-  },
-
-  // Ball layer — absolutely positioned overlay on top of the (now empty)
-  // grid cells. Each ball is an Animated.View positioned via top/left so it
-  // can slide smoothly between cells (gravity / clears).
-  ballLayer: {
-    position: 'absolute',
-    top: 1,
-    left: 1,
-  },
-  ballSlot: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // White flash rendered behind a matched ball during its "pop" before it
-  // shrinks/fades out — see useBallAnimations().
-  ghostGlow: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
-  },
-
-  // Main row — gold frame lines top + bottom
-  mainRowBg: {
-    backgroundColor: '#160D00',
-    borderTopWidth: 2,
-    borderBottomWidth: 2,
-    borderColor: '#FFCC00',
-  },
-
-  // Cells
-  cell: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 0.5,
-    borderColor: '#171730',
-  },
-  mainCell: {
-    borderColor: '#3A2000',
-  },
-
-  // Row slide buttons
-  rowSlideRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  rowSlideBtn: {
-    width: 36,
-    height: 32,
-    backgroundColor: '#1E3060',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowSlideBtnDim: { backgroundColor: '#0D0D1A' },
-  rowSlideTxt:    { color: '#6688CC', fontSize: 16, fontWeight: 'bold' },
-  rowSlideTxtDim: { color: '#2A2A44' },
-  matchLabel:     { color: '#5A3A00', fontSize: 9, letterSpacing: 1 },
-
-  // Keyboard hint
-  kbHint: {
-    color: '#2A2A44',
-    fontSize: 10,
-    letterSpacing: 0.5,
-    marginTop: 12,
-  },
-
-  // Game over overlay
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.92)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 100,
-  },
-  goTitle:      { color: '#FFD700', fontSize: 32, fontWeight: 'bold', letterSpacing: 2, marginBottom: 20 },
-  goScores:     { flexDirection: 'row', alignItems: 'center', marginBottom: 36 },
-  goScoreCol:   { alignItems: 'center', minWidth: 80 },
-  goScoreLabel: { color: '#666', fontSize: 12, letterSpacing: 1 },
-  goScoreVal:   { color: '#FFF', fontSize: 40, fontWeight: 'bold' },
-  goScoreSep:   { color: '#333', fontSize: 24, marginHorizontal: 16 },
-  goBtn: {
-    backgroundColor: '#1E90FF',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 48,
-    marginBottom: 12,
-    minWidth: 220,
-    alignItems: 'center',
-  },
-  goBtnSecondary:    { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#333' },
-  goBtnTxt:          { color: '#FFF', fontSize: 17, fontWeight: 'bold', letterSpacing: 1 },
-  goBtnTxtSecondary: { color: '#666' },
-});
+  boardGrid: 

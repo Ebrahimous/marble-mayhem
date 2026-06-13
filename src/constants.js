@@ -89,7 +89,7 @@ export const MATCH_SIZE_BONUS = { 3: 0, 4: 20, 5: 50 };
 // Every BALL_ADD_INTERVAL ms, BALL_ADD_COUNT new balls drop into random
 // columns regardless of player input.
 export const BALL_ADD_INTERVAL = 5000; // ms
-export const BALL_ADD_COUNT    = 3;
+export const BALL_ADD_COUNT    = 2;
 
 // ── AI ────────────────────────────────────────────────────────────────────────
 // How long (ms) the AI waits before making each move

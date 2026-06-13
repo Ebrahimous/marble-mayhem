@@ -284,18 +284,20 @@ particular:
   chain bonus / combo multiplier) — confirm via the score popup after each
   match size.
 
-## What's next (in priority order)
+## Session 2026-06-13 (UI polish + live drag preview + tuning)
 
-1. Manual playtest in browser (`npm run web`) — see the 2026-06-13 solo-mode
-   session checklist above (highest priority — covers all of today's
-   changes), plus the earlier 2026-06-13 animation/AI/combo checklist (wrap
-   slide, landing bounce, match pop, column highlight, AI difficulty, combo
-   multiplier — still not playtested).
-2. Tune `MATCH_SIZE_BONUS` / `BALL_ADD_INTERVAL` / `BALL_ADD_COUNT` constants
-   once playtested — these were chosen as reasonable starting points, not
-   final balance.
-3. Low priority / not yet requested: update MenuScreen "How to Play" modal to
-   reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
-   also doesn't mention combos, AI difficulty, or the auto ball-add timer).
-4. Native build (iOS/Android via `expo build`/EAS) remains a future option —
-   keep changes framework-agnostic, no web-only forks of game logic.
+- `src/screens/MenuScreen.js`:
+  - START button content (`modeBtnSolo`) is now centered as a group within
+    the button box: added `modeBtnCentered` (`justifyContent: 'center'`) to
+    the button, wrapped the label/sub in `modeBtnTextCentered`
+    (`alignItems: 'center'`), and added `modeBtnTextCenter`
+    (`textAlign: 'center'`) to both `Text` elements.
+  - Solo picker's TIME ATTACK button now uses `[styles.modeBtn,
+    styles.modeBtnAlt]` (same transparent/bordered style as ENDLESS) instead
+    of the solid blue `modeBtn` — both buttons match visually now.
+- `src/constants.js`: `BALL_ADD_COUNT` 3 → 2 (automatic ball-add drops 2
+  balls per cycle instead of 3).
+- `src/screens/GameScreen.js`:
+  - New `isMobile` flag (`winWidth < 768`) — the keyboard-selected-column
+    highlight (`selectedColHighlight`, the thin blue vertical line) is now
+    only 

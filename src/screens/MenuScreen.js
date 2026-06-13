@@ -118,14 +118,14 @@ export default function MenuScreen({ navigation }) {
         <Text style={styles.modeTitle}>SELECT MODE</Text>
 
         <TouchableOpacity
-          style={[styles.modeBtn, styles.modeBtnSolo]}
+          style={[styles.modeBtn, styles.modeBtnSolo, styles.modeBtnCentered]}
           onPress={() => { sfx.playClick(); setSolo(true); }}
           activeOpacity={0.8}
         >
           <Text style={styles.modeBtnIcon}>🎯</Text>
-          <View>
-            <Text style={styles.modeBtnLabel}>START</Text>
-            <Text style={styles.modeBtnSub}>Time Attack or Endless</Text>
+          <View style={styles.modeBtnTextCentered}>
+            <Text style={[styles.modeBtnLabel, styles.modeBtnTextCenter]}>START</Text>
+            <Text style={[styles.modeBtnSub, styles.modeBtnTextCenter]}>Time Attack or Endless</Text>
           </View>
         </TouchableOpacity>
 
@@ -266,7 +266,7 @@ export default function MenuScreen({ navigation }) {
             <Text style={styles.sheetTitle}>Solo Mode</Text>
 
             <TouchableOpacity
-              style={styles.modeBtn}
+              style={[styles.modeBtn, styles.modeBtnAlt]}
               onPress={() => { setSolo(false); play('solo-time'); }}
               activeOpacity={0.8}
             >
@@ -457,6 +457,9 @@ const styles = StyleSheet.create({
   modeBtnIcon:  { fontSize: 28 },
   modeBtnLabel: { color: '#FFF', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   modeBtnSub:   { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 },
+  modeBtnCentered:    { justifyContent: 'center' },
+  modeBtnTextCentered: { alignItems: 'center' },
+  modeBtnTextCenter:  { textAlign: 'center' },
 
   helpLink:    { paddingVertical: 8 },
   helpLinkTxt: { color: '#333', fontSize: 14 },
@@ -501,15 +504,3 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#252545',
-    overflow: 'hidden',
-  },
-  toggleOption: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-  },
-  toggleOptionActive: {
-    backgroundColor: '#1E90FF',
-  },
-  toggleOptionTxt: { color: '#666', fontSize: 12, fontWeight: 'bold' },
-  toggleOptionTxtActive: { color: '#FFF' },
-});
