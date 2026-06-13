@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-14 (fix balls visually stuck after tab backgrounding)_
+_Last updated: 2026-06-14 (redesign first-run tutorial with illustrations)_
 
 ## Current state
 
@@ -433,4 +433,64 @@ gravity design says should never happen).
   each ball's pixel position via `Animated.Value`s tweened with
   `Animated.timing` (`useNativeDriver: false`, i.e. JS/RAF-driven). Mobile
   browsers throttle or fully pause `requestAnimationFrame` while a tab is
-  backgrounded/locked. If a slide/fall animation is
+  backgrounded/locked. If a slide/fall animation is in flight when that
+  happens, it can get stuck permanently — the ball renders hovering over its
+  *old* cell forever, while the cell it actually occupies now (per the board
+  model, which already updated) renders nothing, producing the visual "gap".
+- Fix: added a `visibilitychange`/`focus` listener inside
+  `useBallAnimations()` that, when the page becomes visible/focused again,
+  calls `stopAnimation()` then `setValue(row*cellSize / col*cellSize)` on
+  every tracked ball's `top`/`left` — snapping all balls back to their
+  current (already-correct) model position. Doesn't affect animations on an
+  active tab.
+- Pushed as `121db35`.
+
+**To playtest**: on a phone, start a game, switch away from the browser tab/
+app for 10-30s mid-slide, then switch back — board should look correctly
+packed (no floating balls with gaps below them) immediately on return.
+
+## Session 2026-06-14 (redesign first-run tutorial: minimal words + illustrations)
+
+Reworked the first-run "How to Play" modal (`GameScreen.js`, shown via
+`showTutorial`/`dontShowTutorial`/`closeTutorial`, persisted with the
+`'tutorialDismissed'` AsyncStorage key) to lead with small ball-based
+illustrations instead of paragraphs of text.
+
+- New `TUT_BALL = 18` constant sizes the little `BallView`s used in the
+  diagrams.
+- Modal body is now a 2×2 illustration grid, each cell a tiny diagram + a
+  2-4 word caption:
+  - **Drag columns** — vertical stack of balls with ▲/▼ arrows.
+  - **Swipe gold row** — a gold-tinted row of balls with ◀/▶ arrows.
+  - **Match 3+ to clear** — three same-color balls in an outlined row with
+    a ✨ sparkle.
+  - **Tap centre for new balls** — a single larger ball with a 👆 icon.
+- New styles: `tutGrid`, `tutCell`, `tutIllusBox`, `tutIllusRow`,
+  `tutColStack`, `tutRowBar`, `tutMatchRow`, `tutArrow`, `tutSparkle`,
+  `tutTapIcon`, `tutCaption`. Existing `tutTitle`, `tutCheckRow`,
+  `tutCheckbox`/`tutCheckboxChecked`/`tutCheckmark`/`tutCheckLabel`, and the
+  "Got it!" button are unchanged.
+- Verified via `esbuild` syntax check; pushed as `f0f5cce`.
+
+**To playtest**: clear the `tutorialDismissed` AsyncStorage key (or use a
+fresh browser profile/incognito), start Time Attack or Endless, and confirm
+the new illustration grid renders correctly and "Don't show this again" +
+"Got it!" still work.
+
+## What's next (in priority order)
+
+1. Manual playtest in browser (`npm run web`) — see the 2026-06-13
+   high-score/popup/tutorial checklist above (highest priority — covers
+   Tasks #19-23, today's changes), plus the earlier 2026-06-13 solo-mode
+   session checklist, and the 2026-06-13 animation/AI/combo checklist (wrap
+   slide, landing bounce, match pop, column highlight, AI difficulty, combo
+   multiplier — still not playtested). Also playtest the 2026-06-14
+   backgrounding/resync fix and the new illustrated tutorial above.
+2. Tune `MATCH_SIZE_BONUS` / `BALL_ADD_INTERVAL` / `BALL_ADD_COUNT` constants
+   once playtested — these were chosen as reasonable starting points, not
+   final balance.
+3. Low priority / not yet requested: update MenuScreen "How to Play" modal to
+   reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
+   also doesn't mention combos, AI difficulty, or the auto ball-add timer).
+4. Native build (iOS/Android via `expo build`/EAS) remains a future option —
+   keep changes framework-agnostic, no web-only forks of game logic.
