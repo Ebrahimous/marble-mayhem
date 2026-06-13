@@ -504,3 +504,15 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#252545',
+    overflow: 'hidden',
+  },
+  toggleOption: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+  },
+  toggleOptionActive: {
+    backgroundColor: '#1E90FF',
+  },
+  toggleOptionTxt: { color: '#666', fontSize: 12, fontWeight: 'bold' },
+  toggleOptionTxtActive: { color: '#FFF' },
+});

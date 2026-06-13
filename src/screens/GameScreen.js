@@ -1175,4 +1175,120 @@ const styles = StyleSheet.create({
   }),
 
   // Board grid
-  boardGrid: 
+  boardGrid: {
+    backgroundColor: '#0D0D22',
+    borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#1E1E44',
+  },
+  boardRow: { flexDirection: 'row' },
+
+  // Highlight bar for the keyboard-selected column (P1/solo board).
+  selectedColHighlight: {
+    position: 'absolute',
+    top: 1,
+    backgroundColor: 'rgba(30,144,255,0.10)',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(30,144,255,0.30)',
+  },
+
+  // Ball layer — absolutely positioned overlay on top of the (now empty)
+  // grid cells. Each ball is an Animated.View positioned via top/left so it
+  // can slide smoothly between cells (gravity / clears).
+  ballLayer: {
+    position: 'absolute',
+    top: 1,
+    left: 1,
+  },
+  ballSlot: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // White flash rendered behind a matched ball during its "pop" before it
+  // shrinks/fades out — see useBallAnimations().
+  ghostGlow: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+  },
+
+  // Main row — gold frame lines top + bottom
+  mainRowBg: {
+    backgroundColor: '#160D00',
+    borderTopWidth: 2,
+    borderBottomWidth: 2,
+    borderColor: '#FFCC00',
+  },
+
+  // Cells
+  cell: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 0.5,
+    borderColor: '#171730',
+  },
+  mainCell: {
+    borderColor: '#3A2000',
+  },
+
+  // Row slide buttons
+  rowSlideRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  rowSlideBtn: {
+    width: 36,
+    height: 32,
+    backgroundColor: '#1E3060',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowSlideBtnDim: { backgroundColor: '#0D0D1A' },
+  rowSlideTxt:    { color: '#6688CC', fontSize: 16, fontWeight: 'bold' },
+  rowSlideTxtDim: { color: '#2A2A44' },
+  matchLabel:     { color: '#5A3A00', fontSize: 9, letterSpacing: 1 },
+
+  // Keyboard hint
+  kbHint: {
+    color: '#2A2A44',
+    fontSize: 10,
+    letterSpacing: 0.5,
+    marginTop: 12,
+  },
+
+  // Game over overlay
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
+  goTitle:      { color: '#FFD700', fontSize: 32, fontWeight: 'bold', letterSpacing: 2, marginBottom: 20 },
+  goScores:     { flexDirection: 'row', alignItems: 'center', marginBottom: 36 },
+  goScoreCol:   { alignItems: 'center', minWidth: 80 },
+  goScoreLabel: { color: '#666', fontSize: 12, letterSpacing: 1 },
+  goScoreVal:   { color: '#FFF', fontSize: 40, fontWeight: 'bold' },
+  goScoreSep:   { color: '#333', fontSize: 24, marginHorizontal: 16 },
+  goBtn: {
+    backgroundColor: '#1E90FF',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 48,
+    marginBottom: 12,
+    minWidth: 220,
+    alignItems: 'center',
+  },
+  goBtnSecondary:    { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#333' },
+  goBtnTxt:          { color: '#FFF', fontSize: 17, fontWeight: 'bold', letterSpacing: 1 },
+  goBtnTxtSecondary: { color: '#666' },
+});
