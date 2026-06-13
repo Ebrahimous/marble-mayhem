@@ -28,7 +28,7 @@
  *   Win condition: opponent's board becomes completely full.
  */
 
-import { COLS, ROWS, MAIN_ROW, DEFAULT_BALL_TYPES, MATCH_MIN } from './constants';
+import { COLS, ROWS, MAIN_ROW, DEFAULT_BALL_TYPES, MATCH_MIN, SCORE_PER_BALL, MATCH_SIZE_BONUS } from './constants';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -215,18 +215,24 @@ export function applyGravity(board) {
  * Repeatedly find and clear horizontal runs of MATCH_MIN+ same-colour balls
  * in MAIN_ROW, apply gravity, then loop until no matches remain.
  *
- * Returns { board, cleared, chains }.
- *   cleared — total balls removed
- *   chains  — number of separate clear rounds (1 = single, 2+ = chain reaction)
+ * Returns { board, cleared, chains, rawScore }.
+ *   cleared  — total balls removed
+ *   chains   — number of separate clear rounds (1 = single, 2+ = chain reaction)
+ *   rawScore — score earned from match sizes (size * SCORE_PER_BALL +
+ *              MATCH_SIZE_BONUS[size]), summed across every match cleared.
+ *              Larger matches are worth disproportionately more, since
+ *              they're harder to set up than smaller ones.
  */
 export function resolveMatches(board) {
   // Always apply gravity first so balls cluster around MAIN_ROW before matching
   let current = applyGravity(board);
   let totalCleared = 0;
   let chains = 0;
+  let rawScore = 0;
 
   while (true) {
     let roundCleared = 0;
+    let roundScore = 0;
 
     let c = 0;
     while (c < COLS) {
@@ -236,9 +242,11 @@ export function resolveMatches(board) {
       let end = c + 1;
       while (end < COLS && current[MAIN_ROW][end]?.type === cell.type) end++;
 
-      if (end - c >= MATCH_MIN) {
+      const size = end - c;
+      if (size >= MATCH_MIN) {
         for (let i = c; i < end; i++) current[MAIN_ROW][i] = null;
-        roundCleared += end - c;
+        roundCleared += size;
+        roundScore += size * SCORE_PER_BALL + (MATCH_SIZE_BONUS[size] ?? 0);
       }
       c = end;
     }
@@ -246,11 +254,12 @@ export function resolveMatches(board) {
     if (roundCleared === 0) break;
 
     totalCleared += roundCleared;
+    rawScore += roundScore;
     chains++;
     current = applyGravity(current);
   }
 
-  return { board: current, cleared: totalCleared, chains };
+  return { board: current, cleared: totalCleared, chains, rawScore };
 }
 
 // ── Main-row guarantee ────────────────────────────────────────────────────────
@@ -338,6 +347,36 @@ export function spawnBallWave(board) {
   return applyGravity(next);
 }
 
+/**
+ * Drop `count` new balls into random columns, each entering from a random
+ * open end (top or bottom) — used by the solo-mode automatic ball-add
+ * timer. Columns are chosen at random each time from those that still have
+ * an open end, so the same column can receive more than one ball (as long
+ * as it has room). If no column has room, spawning stops early.
+ *
+ * Returns the resulting (un-settled) board — the caller should run
+ * settleBoard() afterwards to resolve any matches the new balls create.
+ */
+export function addRandomBalls(board, count) {
+  let next = cloneBoard(board);
+
+  for (let i = 0; i < count; i++) {
+    const candidates = [];
+    for (let c = 0; c < COLS; c++) {
+      if (pickSpawnSide(next, c)) candidates.push(c);
+    }
+    if (candidates.length === 0) break;
+
+    const c = candidates[Math.floor(Math.random() * candidates.length)];
+    const side = pickSpawnSide(next, c);
+    const ball = makeBall();
+    ball.spawnSide = side;
+    next[side === 'top' ? 0 : ROWS - 1][c] = ball;
+  }
+
+  return applyGravity(next);
+}
+
 // ── Settling ──────────────────────────────────────────────────────────────────
 
 /** Cheap fingerprint of a board's ball identities + positions. */
@@ -362,26 +401,28 @@ const MAX_SETTLE_ROUNDS = 25;
  * MAIN_ROW (which a single resolveMatches() + ensureMainRowFull() pass would
  * miss, leaving an un-cleared match sitting in the main row).
  *
- * Returns { board, cleared, chains } — totals across every round.
+ * Returns { board, cleared, chains, rawScore } — totals across every round.
  */
 export function settleBoard(board) {
   let current = board;
   let totalCleared = 0;
   let totalChains  = 0;
+  let totalRawScore = 0;
 
   for (let round = 0; round < MAX_SETTLE_ROUNDS; round++) {
     const before = boardSnapshot(current);
 
-    const { board: resolved, cleared, chains } = resolveMatches(current);
+    const { board: resolved, cleared, chains, rawScore } = resolveMatches(current);
     totalCleared += cleared;
     totalChains  += chains;
+    totalRawScore += rawScore;
 
     current = ensureMainRowFull(resolved);
 
     if (boardSnapshot(current) === before) break; // stable — nothing changed
   }
 
-  return { board: current, cleared: totalCleared, chains: totalChains };
+  return { board: current, cleared: totalCleared, chains: totalChains, rawScore: totalRawScore };
 }
 
 // ── Penalty system ────────────────────────────────────────────────────────────

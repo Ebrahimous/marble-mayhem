@@ -9,6 +9,10 @@ import BallView from '../components/BallView';
 import { CELL_SIZE, BALL_TYPES_5, BALL_TYPES_6, DEFAULT_AI_DIFFICULTY } from '../constants';
 import * as sfx from '../sounds';
 
+// VS COMPUTER and 2 PLAYERS modes are hidden for now — current work is
+// focused entirely on solo mode. Flip to true to bring them back.
+const SHOW_MULTIPLAYER_MODES = false;
+
 export default function MenuScreen({ navigation }) {
   const insets    = useSafeAreaInsets();
   const [high, setHigh]           = useState(0);
@@ -120,34 +124,41 @@ export default function MenuScreen({ navigation }) {
         >
           <Text style={styles.modeBtnIcon}>🎯</Text>
           <View>
-            <Text style={styles.modeBtnLabel}>SOLO</Text>
+            <Text style={styles.modeBtnLabel}>START</Text>
             <Text style={styles.modeBtnSub}>Time Attack or Endless</Text>
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.modeBtn}
-          onPress={() => { sfx.playClick(); setShowAI(true); }}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.modeBtnIcon}>🤖</Text>
-          <View>
-            <Text style={styles.modeBtnLabel}>VS COMPUTER</Text>
-            <Text style={styles.modeBtnSub}>1 player · compete against AI</Text>
-          </View>
-        </TouchableOpacity>
+        {/* VS COMPUTER and 2 PLAYERS modes are hidden for now — all work is
+            focused on solo mode. Re-enable by flipping SHOW_MULTIPLAYER_MODES
+            (the matching AI-difficulty modal below remains intact). */}
+        {SHOW_MULTIPLAYER_MODES && (
+          <>
+            <TouchableOpacity
+              style={styles.modeBtn}
+              onPress={() => { sfx.playClick(); setShowAI(true); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modeBtnIcon}>🤖</Text>
+              <View>
+                <Text style={styles.modeBtnLabel}>VS COMPUTER</Text>
+                <Text style={styles.modeBtnSub}>1 player · compete against AI</Text>
+              </View>
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.modeBtn, styles.modeBtnAlt]}
-          onPress={() => play('pvp')}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.modeBtnIcon}>👥</Text>
-          <View>
-            <Text style={styles.modeBtnLabel}>2 PLAYERS</Text>
-            <Text style={styles.modeBtnSub}>Same device · pass &amp; play</Text>
-          </View>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeBtn, styles.modeBtnAlt]}
+              onPress={() => play('pvp')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modeBtnIcon}>👥</Text>
+              <View>
+                <Text style={styles.modeBtnLabel}>2 PLAYERS</Text>
+                <Text style={styles.modeBtnSub}>Same device · pass &amp; play</Text>
+              </View>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* How to play */}

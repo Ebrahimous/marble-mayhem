@@ -77,6 +77,20 @@ export const SCORE_PER_BALL = 10;
 export const CHAIN_BONUS      = 50;   // bonus per extra chain (chains-1) * CHAIN_BONUS
 export const MATCH_MIN        = 3;
 
+// Extra flat bonus added on top of (size * SCORE_PER_BALL) for each match,
+// scaling up with match size since longer runs are harder to set up than
+// their ball count alone would suggest.
+//   3-match: 3*10 + 0  = 30  (10/ball)
+//   4-match: 4*10 + 20 = 60  (15/ball)
+//   5-match: 5*10 + 50 = 100 (20/ball)
+export const MATCH_SIZE_BONUS = { 3: 0, 4: 20, 5: 50 };
+
+// ── Automatic ball spawning (solo mode) ─────────────────────────────────────────
+// Every BALL_ADD_INTERVAL ms, BALL_ADD_COUNT new balls drop into random
+// columns regardless of player input.
+export const BALL_ADD_INTERVAL = 5000; // ms
+export const BALL_ADD_COUNT    = 3;
+
 // ── AI ────────────────────────────────────────────────────────────────────────
 // How long (ms) the AI waits before making each move
 export const AI_DELAY = {

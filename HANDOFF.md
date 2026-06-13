@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-13_
+_Last updated: 2026-06-13 (solo-mode focus session)_
 
 ## Current state
 
@@ -218,16 +218,84 @@ column, all three AI difficulties feel distinct, and that combo messages
 (`×2 COMBO`, `×3 COMBO`, ...) appear on consecutive clears and reset after
 a non-clearing move.
 
+## Session 2026-06-13 (solo-mode focus: hide multiplayer, auto ball-add timer, match-size scoring)
+
+Per user request, **all future work targets solo mode only** for now.
+VS Computer / 2-Player are hidden (not deleted) and the SOLO button is
+renamed START.
+
+- `src/screens/MenuScreen.js`:
+  - New `SHOW_MULTIPLAYER_MODES = false` flag — VS COMPUTER and 2 PLAYERS
+    mode buttons (and their handlers) are wrapped in
+    `{SHOW_MULTIPLAYER_MODES && (...)}`. Flip to `true` to restore them; the
+    AI-difficulty modal and `playAI`/`setShowAI` code are untouched.
+  - "SOLO" mode button label renamed to "START" (still opens the existing
+    Time Attack / Endless picker — that picker was left as-is).
+- `src/constants.js`:
+  - New `MATCH_SIZE_BONUS = { 3: 0, 4: 20, 5: 50 }` — flat bonus added on
+    top of `size * SCORE_PER_BALL` per match, so 3/4/5-matches score
+    30/60/100 (10/15/20 per ball) instead of a flat 10/ball. Reflects that
+    longer runs are harder to set up than their ball count alone implies.
+  - New `BALL_ADD_INTERVAL = 5000` (ms) and `BALL_ADD_COUNT = 3` for the
+    automatic ball-add timer below.
+- `src/engine.js`:
+  - `resolveMatches` now tracks match size per cleared run and returns
+    `rawScore` (sum of `size * SCORE_PER_BALL + MATCH_SIZE_BONUS[size]`
+    across all matches that round), alongside the existing `cleared`/
+    `chains`. `settleBoard` aggregates `rawScore` across settle rounds and
+    returns it too.
+  - New `addRandomBalls(board, count)` — drops `count` balls into randomly
+    chosen columns (each via the existing `pickSpawnSide` top/bottom entry
+    logic used by `spawnBallWave`), then applies gravity. Returns an
+    un-settled board (caller runs `settleBoard`).
+- `src/screens/GameScreen.js`:
+  - `applySlide` now computes `rawGain` from `rawScore` (match-size aware)
+    instead of `cleared * SCORE_PER_BALL`; combo multiplier still applies
+    on top as before. Removed now-unused `SCORE_PER_BALL` import.
+  - New state field `ballAddTick` (starts at 0, incremented by the new
+    action below) and new reducer case `AUTO_BALL_ADD`: clones
+    `boards[0]`, calls `addRandomBalls(board, BALL_ADD_COUNT)` →
+    `settleBoard`, adds any `rawScore` (+ chain bonus) to `scores[0]`
+    without touching the combo streak (the player didn't act), sets the
+    score-popup `message`, and checks the solo-normal stuck condition.
+  - New effect: every `BALL_ADD_INTERVAL` ms (solo modes only, paused by
+    `state.paused`/`state.gameOver`), animates `ballAddAnim` (0→1, linear)
+    and dispatches `AUTO_BALL_ADD` when it completes; restarts on
+    `ballAddTick` changes or pause toggles.
+  - New UI: a 2px-tall, semi-transparent (`rgba(255,255,255,0.06)` track /
+    `rgba(30,144,255,0.45)` fill) horizontal bar directly below the header,
+    solo modes only (`isSolo`), whose width animates with `ballAddAnim` —
+    visualizes the 5s countdown to the next automatic ball drop. New
+    styles `ballAddTrack`, `ballAddFill`.
+
+Verified via Read tool — all edited regions re-read in full and are
+syntactically valid JS/JSX; no Edit-tool mismatches.
+**Manual browser playtest is still the next real verification step**, in
+particular:
+- Menu shows only the START button (no VS COMPUTER / 2 PLAYERS).
+- START still opens the Time Attack / Endless picker as before.
+- In a solo game, the thin blue line below the header fills up over ~5s,
+  then resets as 3 new balls drop into random columns (possibly causing a
+  match/chain — watch for the score popup and that it doesn't show a combo
+  multiplier).
+- Pausing freezes the line and stops new balls from being added; resuming
+  restarts the 5s cycle.
+- 3-ball matches now score 30, 4-ball matches 60, 5-ball matches 100 (before
+  chain bonus / combo multiplier) — confirm via the score popup after each
+  match size.
+
 ## What's next (in priority order)
 
-1. Manual playtest in browser (`npm run web`): pause/resume mid-game, Time
-   Attack countdown + game-over, Endless until stuck, solo high-score saving,
-   the 5/6 ball-count toggle, and all six items from the 2026-06-13 session
-   above (wrap slide, landing bounce, match pop, column highlight, AI
-   difficulty, combo multiplier). No playtest has happened yet — this is the
-   first thing to do.
-2. Low priority / not yet requested: update MenuScreen "How to Play" modal to
+1. Manual playtest in browser (`npm run web`) — see the 2026-06-13 solo-mode
+   session checklist above (highest priority — covers all of today's
+   changes), plus the earlier 2026-06-13 animation/AI/combo checklist (wrap
+   slide, landing bounce, match pop, column highlight, AI difficulty, combo
+   multiplier — still not playtested).
+2. Tune `MATCH_SIZE_BONUS` / `BALL_ADD_INTERVAL` / `BALL_ADD_COUNT` constants
+   once playtested — these were chosen as reasonable starting points, not
+   final balance.
+3. Low priority / not yet requested: update MenuScreen "How to Play" modal to
    reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
-   also doesn't mention combos or AI difficulty).
-3. Native build (iOS/Android via `expo build`/EAS) remains a future option —
+   also doesn't mention combos, AI difficulty, or the auto ball-add timer).
+4. Native build (iOS/Android via `expo build`/EAS) remains a future option —
    keep changes framework-agnostic, no web-only forks of game logic.

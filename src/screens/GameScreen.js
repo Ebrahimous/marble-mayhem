@@ -18,9 +18,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   COLS, ROWS, MAIN_ROW,
-  SCORE_PER_BALL, CHAIN_BONUS,
+  CHAIN_BONUS,
   AI_DELAY, DEFAULT_AI_DIFFICULTY,
   BALL_TYPES_5, BALL_TYPES_6,
+  BALL_ADD_INTERVAL, BALL_ADD_COUNT,
   getBoardMetrics,
 } from '../constants';
 
@@ -35,6 +36,7 @@ import {
   settleBoard,
   addPenaltyBall,
   spawnBallWave,
+  addRandomBalls,
   setBallTypes,
   getAIMove,
 } from '../engine';
@@ -57,6 +59,7 @@ function createInitialState(mode, ballCount = 5) {
     winner:      null,
     message:     '',
     aiTick:      0,
+    ballAddTick: 0,   // bumped each time the auto ball-add timer fires (solo)
     selectedCol: 0,   // keyboard-selected column on P1's board
     paused:      false,
     timeLeft:    mode === 'solo-time' ? 60 : null,
@@ -83,7 +86,7 @@ function applySlide(state, playerIdx, slidedBoard) {
 
   // Resolve matches, top up the main row, and keep settling until stable
   // (catches chain matches formed by newly-spawned balls).
-  const { board: settled, cleared, chains } = settleBoard(slidedBoard);
+  const { board: settled, cleared, chains, rawScore } = settleBoard(slidedBoard);
   boards[playerIdx] = settled;
 
   if (cleared > 0) {
@@ -94,7 +97,9 @@ function applySlide(state, playerIdx, slidedBoard) {
     const combo = combos[playerIdx];
     const multiplier = 1 + Math.min(combo - 1, 4) * 0.25;
 
-    const rawGain = cleared * SCORE_PER_BALL + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
+    // rawScore already accounts for match-size (3/4/5) scaling — see
+    // resolveMatches() / MATCH_SIZE_BONUS in constants.js.
+    const rawGain = rawScore + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
     const gain = Math.round(rawGain * multiplier);
     scores[playerIdx] += gain;
 
@@ -167,6 +172,31 @@ function gameReducer(state, action) {
       const { player } = action;
       if (state.mode === 'ai' && player === 1) return state;
       return applySlide(state, player, spawnBallWave(state.boards[player]));
+    }
+
+    case 'AUTO_BALL_ADD': {
+      // Global solo-mode timer: every BALL_ADD_INTERVAL ms, BALL_ADD_COUNT
+      // balls drop into random columns regardless of player input. Any
+      // matches this triggers still score (with match-size scaling +
+      // chain bonus), but don't affect the player's combo streak since
+      // the player didn't make a move.
+      if (state.paused) return state;
+      const boards = state.boards.map(b => cloneBoard(b));
+      const { board: settled, chains, rawScore } = settleBoard(addRandomBalls(boards[0], BALL_ADD_COUNT));
+      boards[0] = settled;
+
+      const scores = [...state.scores];
+      let message = state.message;
+      if (rawScore > 0) {
+        const gain = rawScore + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
+        scores[0] += gain;
+        message = chains > 1 ? `${chains}× CHAIN! +${gain}` : `+${gain}`;
+      }
+
+      let gameOver = state.gameOver;
+      if (state.mode === 'solo-normal' && isBoardFull(boards[0])) gameOver = true;
+
+      return { ...state, boards, scores, message, gameOver, ballAddTick: state.ballAddTick + 1 };
     }
 
     case 'AI_MOVE': {
@@ -656,6 +686,26 @@ export default function GameScreen({ navigation, route }) {
     return () => clearInterval(t);
   }, [mode, state.gameOver, state.paused]);
 
+  // ── Automatic ball-add timer (solo modes) ─────────────────────────────────────
+  // Every BALL_ADD_INTERVAL ms, BALL_ADD_COUNT balls drop into random columns.
+  // ballAddAnim animates 0→1 over that interval to drive the thin progress
+  // line below the header; it restarts whenever the timer fires (ballAddTick)
+  // or pause state changes.
+  const ballAddAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!isSolo || state.gameOver || state.paused) return;
+    ballAddAnim.setValue(0);
+    const anim = Animated.timing(ballAddAnim, {
+      toValue: 1,
+      duration: BALL_ADD_INTERVAL,
+      easing: Easing.linear,
+      useNativeDriver: false,
+    });
+    anim.start();
+    const t = setTimeout(() => dispatch({ type: 'AUTO_BALL_ADD' }), BALL_ADD_INTERVAL);
+    return () => { clearTimeout(t); anim.stop(); };
+  }, [isSolo, state.gameOver, state.paused, state.ballAddTick]);
+
   // ── Message auto-clear ────────────────────────────────────────────────────────
   const msgTimer = useRef(null);
   useEffect(() => {
@@ -850,6 +900,19 @@ export default function GameScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
+        {/* Ball-add timer indicator — thin line that fills up over
+            BALL_ADD_INTERVAL ms, then resets when new balls drop in. */}
+        {isSolo && (
+          <View style={styles.ballAddTrack}>
+            <Animated.View
+              style={[
+                styles.ballAddFill,
+                { width: ballAddAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
+              ]}
+            />
+          </View>
+        )}
+
         {/* Message */}
         <View style={styles.msgRow}>
           {!!message && <Text style={styles.message}>{message}</Text>}
@@ -1000,6 +1063,21 @@ const styles = StyleSheet.create({
   scoreVal:     { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
   timeWarning:  { color: '#FF4757' },
   vsText:       { color: '#333', fontSize: 14, fontWeight: 'bold' },
+
+  // Ball-add timer indicator — thin transparent line below the header that
+  // fills up over BALL_ADD_INTERVAL ms, then resets when new balls drop in.
+  ballAddTrack: {
+    width: '100%',
+    height: 2,
+    marginTop: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+  },
+  ballAddFill: {
+    height: '100%',
+    backgroundColor: 'rgba(30,144,255,0.45)',
+  },
 
   // Message
   msgRow:  { height: 26, justifyContent: 'center' },
