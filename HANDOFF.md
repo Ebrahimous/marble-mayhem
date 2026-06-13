@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-13 (high-score refresh, popup rework, spawn-delay fix, first-run tutorial)_
+_Last updated: 2026-06-14 (fix balls visually stuck after tab backgrounding)_
 
 ## Current state
 
@@ -417,19 +417,20 @@ time) — Cloudflare Workers will run its own build on push as usual.
   tutorial modal appears, gameplay is paused while it's open, and checking
   "don't show again" before closing prevents it from reappearing.
 
-## What's next (in priority order)
+## Session 2026-06-14 (fix balls visually stuck after tab backgrounding)
 
-1. Manual playtest in browser (`npm run web`) — see the 2026-06-13
-   high-score/popup/tutorial checklist above (highest priority — covers
-   Tasks #19-23, today's changes), plus the earlier 2026-06-13 solo-mode
-   session checklist, and the 2026-06-13 animation/AI/combo checklist (wrap
-   slide, landing bounce, match pop, column highlight, AI difficulty, combo
-   multiplier — still not playtested).
-2. Tune `MATCH_SIZE_BONUS` / `BALL_ADD_INTERVAL` / `BALL_ADD_COUNT` constants
-   once playtested — these were chosen as reasonable starting points, not
-   final balance.
-3. Low priority / not yet requested: update MenuScreen "How to Play" modal to
-   reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
-   also doesn't mention combos, AI difficulty, or the auto ball-add timer).
-4. Native build (iOS/Android via `expo build`/EAS) remains a future option —
-   keep changes framework-agnostic, no web-only forks of game logic.
+A player reported "empty spots between balls" on the live site (screenshot:
+Time Attack board with isolated gaps appearing mid-column, e.g. a ball at
+row 2 with an empty row 3 below it before the MAIN_ROW ball — which the
+gravity design says should never happen).
+
+- Verified `engine.js` itself is correct: wrote a brute-force test
+  (`createInitialBoard` + 20,000 random COL_SLIDE/ROW_SLIDE/SPAWN_WAVE/
+  ADD_RANDOM moves, each followed by `settleBoard`, checking the no-internal-
+  gap gravity invariant per column) — zero violations. The board *model* is
+  always fully packed after every move.
+- Root cause is in rendering: `useBallAnimations()` in `GameScreen.js` tracks
+  each ball's pixel position via `Animated.Value`s tweened with
+  `Animated.timing` (`useNativeDriver: false`, i.e. JS/RAF-driven). Mobile
+  browsers throttle or fully pause `requestAnimationFrame` while a tab is
+  backgrounded/locked. If a slide/fall animation is
