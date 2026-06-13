@@ -373,6 +373,34 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
     }));
   }, [cellSize]);
 
+  // Re-snap every ball to its current grid cell when the tab/page regains
+  // visibility or focus. Mobile browsers throttle or fully pause
+  // requestAnimationFrame while backgrounded, which can leave an
+  // Animated.timing for a slide/fall permanently stuck mid-flight — the ball
+  // then renders hovering over its old cell while the board model (and the
+  // cell it actually occupies) has already moved on, producing "empty spots"
+  // where balls visually appear to be missing. Forcing every ball back to
+  // `row*cellSize` / `col*cellSize` (its already-current model position)
+  // fixes the desync without affecting in-progress animations on an active tab.
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const resync = () => {
+      if (document.visibilityState && document.visibilityState !== 'visible') return;
+      animsRef.current.forEach((entry) => {
+        entry.top.stopAnimation();
+        entry.left.stopAnimation();
+        entry.top.setValue(entry.row * cellSize);
+        entry.left.setValue(entry.col * cellSize);
+      });
+    };
+    document.addEventListener('visibilitychange', resync);
+    if (typeof window !== 'undefined') window.addEventListener('focus', resync);
+    return () => {
+      document.removeEventListener('visibilitychange', resync);
+      if (typeof window !== 'undefined') window.removeEventListener('focus', resync);
+    };
+  }, [cellSize]);
+
   useEffect(() => {
     const prev = prevRef.current;
     prevRef.current = board;
