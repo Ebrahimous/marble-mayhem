@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity,
   StyleSheet, Modal, ScrollView,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import BallView from '../components/BallView';
@@ -26,12 +27,20 @@ export default function MenuScreen({ navigation }) {
   const [aiDifficulty, setAiDifficulty] = useState(DEFAULT_AI_DIFFICULTY);
 
   useEffect(() => {
-    AsyncStorage.getItem('highScore').then(v => v && setHigh(parseInt(v, 10)));
     AsyncStorage.getItem('ballCount').then(v => v && setBallCount(parseInt(v, 10)));
     AsyncStorage.getItem('tapToMove').then(v => setTapToMove(v === 'true'));
     AsyncStorage.getItem('soundMuted').then(v => setSoundOn(v !== 'true'));
     AsyncStorage.getItem('aiDifficulty').then(v => v && setAiDifficulty(v));
   }, []);
+
+  // Re-read the high score every time the menu regains focus (e.g. coming
+  // back from a game that just set a new high score) — a plain mount-only
+  // effect would keep showing the stale value until a full page refresh.
+  useFocusEffect(
+    useCallback(() => {
+      AsyncStorage.getItem('highScore').then(v => setHigh(v ? parseInt(v, 10) : 0));
+    }, [])
+  );
 
   const toggleBallCount = () => {
     sfx.playClick();

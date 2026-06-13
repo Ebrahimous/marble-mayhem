@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-13 (solo-mode focus session)_
+_Last updated: 2026-06-13 (high-score refresh, popup rework, spawn-delay fix, first-run tutorial)_
 
 ## Current state
 
@@ -300,4 +300,136 @@ particular:
 - `src/screens/GameScreen.js`:
   - New `isMobile` flag (`winWidth < 768`) — the keyboard-selected-column
     highlight (`selectedColHighlight`, the thin blue vertical line) is now
-    only 
+    only passed a real `selectedCol` on desktop-width viewports; on mobile
+    both boards get `selectedCol={-1}` so the line never renders (keyboard
+    column selection is a desktop-only control anyway).
+  - **Live touch-drag column/row preview**: `BoardWithControls`'s
+    `PanResponder` gained `onPanResponderMove` (+ `onPanResponderTerminate`,
+    `onPanResponderTerminationRequest: () => false`). During a drag, once the
+    gesture direction is determined (first move past 6px), it locks to axis
+    `'col'` (vertical drag — any column) or `'row'` (horizontal drag,
+    MAIN_ROW only); a new `dragOffset` Animated.Value is updated live via
+    `setValue(clamp(dx/dy, -cellSize, cellSize))`, giving 1:1 visual
+    tracking of the finger, capped at one cell.
+  - `useBallAnimations(board, cellSize, dragInfo)` now takes a third
+    `dragInfo` arg (`{ axis, index, offset }`); balls in the dragged column
+    get `translateY: dragInfo.offset`, balls in MAIN_ROW get `translateX:
+    dragInfo.offset` when `axis === 'row'`. `forEachCell`'s callback in the
+    elements loop now receives `(ball, row, col)` (previously just `ball`).
+  - On release, existing swipe-threshold logic is unchanged (decides
+    direction and dispatches `COL_SLIDE`/`ROW_SLIDE`/tap-to-move exactly as
+    before — match resolution still only happens on release). After
+    deciding, `dragOffset` animates back to 0 over `FALL_DURATION` and
+    `dragInfo` resets to `{ axis: null, index: -1 }` on completion. If the
+    drag doesn't cross the threshold, the board is unchanged and this same
+    animate-to-0 produces a snap-back.
+
+**Not yet playtested** — verify in browser (`npm run web`):
+- START button text (label + "Time Attack or Endless") appears centered in
+  its green button.
+- TIME ATTACK and ENDLESS buttons in the Solo picker look identical
+  (transparent/bordered).
+- Auto ball-add now drops 2 balls every 5s instead of 3.
+- On a narrow/mobile-width browser window, no blue vertical line appears on
+  the board; widen the window past ~768px and confirm arrow-key column
+  selection shows the line again.
+- Drag a column up/down with touch/mouse — the column's balls should visibly
+  follow the drag in real time (clamped to ~1 cell), and only commit
+  (triggering match resolution/scoring) on release if the drag exceeded the
+  swipe threshold; otherwise it should snap back smoothly. Repeat for a
+  horizontal drag on the MAIN_ROW.
+
+## Session 2026-06-13 (high-score refresh, popup rework, spawn-delay fix, first-run tutorial)
+
+Five fixes/features (Tasks #19–23), all solo-mode:
+
+- `src/screens/MenuScreen.js` (Task #19 — high score not updating until refresh):
+  - Added `useFocusEffect` (from `@react-navigation/native`) that re-reads
+    `AsyncStorage` key `'highScore'` every time the menu screen regains
+    focus — e.g. returning from a game that just set a new best. The old
+    mount-only `useEffect` no longer reads `'highScore'` itself; the
+    focus effect is now the single source of truth, so the BEST SCORE box
+    updates immediately on returning to the menu instead of needing a full
+    page reload.
+
+- Task #20 (investigate "darker balls" rendering report): reviewed
+  `BallView.js` (flat solid-colour circle, no border/glow — unchanged) and
+  the ball animation/opacity logic in `GameScreen.js`. Newly-spawned balls
+  fade in via `opacity: 0 → 1` over `FALL_DURATION` as they slide onto the
+  board (see Task #22 below), which can read as "darker" balls briefly
+  during the fade. No rendering bug found — `BallView` itself is unchanged;
+  no code changes made for this task.
+
+- `src/engine.js` + `src/screens/GameScreen.js` (Task #21 — match score
+  popup moved to the matched balls, with enlarge/fade):
+  - `resolveMatches()`/`settleBoard()` now also return a `sizes` array — one
+    entry per cleared match run (3/4/5...) across all settle rounds.
+  - `GameScreen.js`'s `lastMatch` (passed into `useBallAnimations`) is
+    classified into a `kind`: `'normal'` (3-match, single round),
+    `'big4'`/`'big5'` (4- or 5-ball match), or `'chain'` (2+ settle rounds),
+    derived from `lastMatch.maxSize`/`chains`.
+  - The score popup no longer renders as a single message at a fixed
+    position — instead, a popup is anchored at the matched balls' position
+    and plays an enlarge-then-fade animation (`popup`/`popupText`/
+    `popupSubText` styles, each with `_normal`/`_big4`/`_big5`/`_chain`
+    variants for size-dependent styling/colour).
+
+- `src/screens/GameScreen.js` (Task #22 — ~5s delay before initial balls
+  appear at game start):
+  - Root cause: `useBallAnimations` only populated ball positions inside a
+    `useEffect`, which runs *after* the first paint — so the board rendered
+    empty until some unrelated state change (e.g. the first 5s
+    auto-ball-add tick) forced a re-render and finally populated
+    `animsRef`.
+  - Fix: the very first set of ball positions is now populated
+    *synchronously during the initial render* (guarded by
+    `prevRef.current === null && animsRef.current.size === 0`), so the
+    first paint already shows every ball in place. The old `useEffect`
+    population path is kept only as a defensive fallback.
+
+- `src/screens/GameScreen.js` (Task #23 — "don't show again" checkbox on
+  the mode tutorial):
+  - New first-run tutorial: `showTutorial` (`null` until the
+    `AsyncStorage` key `'tutorialDismissed'` is read, so it never flashes
+    for returning players) and `dontShowTutorial` state, plus a
+    `closeTutorial()` callback that persists `'tutorialDismissed' = 'true'`
+    only if the checkbox was checked.
+  - While the tutorial is visible, all gameplay is paused: AI timer, Time
+    Attack countdown, auto ball-add timer, column/row slide buttons (`disabled`
+    prop), and the keyboard handler all check `showTutorial`/`showTutorialRef`.
+  - New `Modal` (fade, transparent) with tutorial copy, a checkbox row for
+    "don't show again", and a close button; new `tut*`-prefixed styles.
+
+All five files (`engine.js`, `GameScreen.js`, `MenuScreen.js`) re-read in
+full via the file tools and confirmed syntactically valid; `esbuild
+--loader:.js=jsx` ran clean on all three with no errors. A full
+`npx expo export -p web` was not run locally this session (a from-scratch
+`node_modules` install in the sandbox was impractical within the available
+time) — Cloudflare Workers will run its own build on push as usual.
+**Manual browser playtest still needed**, in particular:
+- Set a new high score, return to the menu, confirm BEST SCORE updates
+  immediately (no refresh).
+- Confirm balls are visible immediately at game start (no ~5s blank delay).
+- Trigger 3-, 4-, 5-ball, and chain matches — confirm the popup appears at
+  the matched balls' location with the right enlarge/fade style for each
+  `kind`.
+- On first launch (or after clearing `tutorialDismissed`), confirm the
+  tutorial modal appears, gameplay is paused while it's open, and checking
+  "don't show again" before closing prevents it from reappearing.
+
+## What's next (in priority order)
+
+1. Manual playtest in browser (`npm run web`) — see the 2026-06-13
+   high-score/popup/tutorial checklist above (highest priority — covers
+   Tasks #19-23, today's changes), plus the earlier 2026-06-13 solo-mode
+   session checklist, and the 2026-06-13 animation/AI/combo checklist (wrap
+   slide, landing bounce, match pop, column highlight, AI difficulty, combo
+   multiplier — still not playtested).
+2. Tune `MATCH_SIZE_BONUS` / `BALL_ADD_INTERVAL` / `BALL_ADD_COUNT` constants
+   once playtested — these were chosen as reasonable starting points, not
+   final balance.
+3. Low priority / not yet requested: update MenuScreen "How to Play" modal to
+   reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
+   also doesn't mention combos, AI difficulty, or the auto ball-add timer).
+4. Native build (iOS/Android via `expo build`/EAS) remains a future option —
+   keep changes framework-agnostic, no web-only forks of game logic.

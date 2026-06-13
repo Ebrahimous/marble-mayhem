@@ -11,7 +11,7 @@ import React, {
 } from 'react';
 import {
   View, Text, TouchableOpacity, Animated, Easing,
-  StyleSheet, PanResponder, ScrollView, useWindowDimensions, Platform,
+  StyleSheet, PanResponder, ScrollView, useWindowDimensions, Platform, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -58,6 +58,7 @@ function createInitialState(mode, ballCount = 5) {
     gameOver:    false,
     winner:      null,
     message:     '',
+    lastMatch:   null,
     aiTick:      0,
     ballAddTick: 0,   // bumped each time the auto ball-add timer fires (solo)
     selectedCol: 0,   // keyboard-selected column on P1's board
@@ -65,6 +66,12 @@ function createInitialState(mode, ballCount = 5) {
     timeLeft:    mode === 'solo-time' ? 60 : null,
   };
 }
+
+// Monotonically increasing id for each match-clear "event" (a slide/spawn
+// or auto ball-add that clears at least one ball). Used to give each
+// floating score popup a unique key so it animates even when the gain
+// value happens to repeat.
+let matchSeqCounter = 0;
 
 // Format whole seconds as M:SS for the Time Attack countdown
 function formatTime(sec) {
@@ -83,10 +90,11 @@ function applySlide(state, playerIdx, slidedBoard) {
   let gameOver   = false;
   let winner     = null;
   let message    = '';
+  let lastMatch  = state.lastMatch;
 
   // Resolve matches, top up the main row, and keep settling until stable
   // (catches chain matches formed by newly-spawned balls).
-  const { board: settled, cleared, chains, rawScore } = settleBoard(slidedBoard);
+  const { board: settled, cleared, chains, rawScore, sizes } = settleBoard(slidedBoard);
   boards[playerIdx] = settled;
 
   if (cleared > 0) {
@@ -105,6 +113,18 @@ function applySlide(state, playerIdx, slidedBoard) {
 
     const comboTxt = combo > 1 ? ` ×${combo} COMBO` : '';
     message = chains > 1 ? `${chains}× CHAIN! +${gain}${comboTxt}` : `+${gain}${comboTxt}`;
+
+    // Drive the floating score popup shown over the matched balls — see
+    // useBallAnimations()'s `popups` handling. maxSize (3/4/5) and chains
+    // pick the "big match" / "chain" celebration styling.
+    lastMatch = {
+      id: ++matchSeqCounter,
+      player: playerIdx,
+      gain,
+      chains,
+      combo,
+      maxSize: sizes.length ? Math.max(...sizes) : 0,
+    };
 
     // One penalty ball per chain-round (head-to-head modes only)
     if (boards.length > 1) {
@@ -133,6 +153,7 @@ function applySlide(state, playerIdx, slidedBoard) {
     gameOver,
     winner,
     message,
+    lastMatch,
     aiTick: playerIdx === 1 ? state.aiTick + 1 : state.aiTick,
   };
 }
@@ -182,21 +203,30 @@ function gameReducer(state, action) {
       // the player didn't make a move.
       if (state.paused) return state;
       const boards = state.boards.map(b => cloneBoard(b));
-      const { board: settled, chains, rawScore } = settleBoard(addRandomBalls(boards[0], BALL_ADD_COUNT));
+      const { board: settled, chains, rawScore, sizes } = settleBoard(addRandomBalls(boards[0], BALL_ADD_COUNT));
       boards[0] = settled;
 
       const scores = [...state.scores];
       let message = state.message;
+      let lastMatch = state.lastMatch;
       if (rawScore > 0) {
         const gain = rawScore + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
         scores[0] += gain;
         message = chains > 1 ? `${chains}× CHAIN! +${gain}` : `+${gain}`;
+        lastMatch = {
+          id: ++matchSeqCounter,
+          player: 0,
+          gain,
+          chains,
+          combo: 0,
+          maxSize: sizes.length ? Math.max(...sizes) : 0,
+        };
       }
 
       let gameOver = state.gameOver;
       if (state.mode === 'solo-normal' && isBoardFull(boards[0])) gameOver = true;
 
-      return { ...state, boards, scores, message, gameOver, ballAddTick: state.ballAddTick + 1 };
+      return { ...state, boards, scores, message, lastMatch, gameOver, ballAddTick: state.ballAddTick + 1 };
     }
 
     case 'AI_MOVE': {
@@ -251,6 +281,7 @@ const CLEAR_DURATION   = 180;  // ms — matched balls shrinking/fading out
 const POP_DURATION     = 110;  // ms — matched balls popping/flashing before clearing
 const SQUASH_DURATION  = 90;   // ms — landing squash (compress)
 const RECOVER_DURATION = 140;  // ms — landing recovery (squash → normal, with overshoot)
+const POPUP_DURATION   = 850;  // ms — floating match-score popup enlarge/rise/fade
 
 // Eased curves: arrivals decelerate (cubic ease-out); the landing recovery
 // overshoots slightly past 1 then settles, for a little "bounce" on impact.
@@ -292,14 +323,38 @@ function landingBounce(scaleY) {
  * Returns an array of <Animated.View> elements (one per ball + ghost) ready
  * to render inside an absolutely-positioned overlay the size of the board.
  */
-function useBallAnimations(board, cellSize, dragInfo) {
+function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
   const animsRef = useRef(new Map()); // id -> { top, left, scaleY, opacity, type, row, col }
   const prevRef  = useRef(null);
   const [ghosts, setGhosts] = useState([]);
+  const [popups, setPopups] = useState([]);
+  // Tracks the id of the last lastMatch we already spawned a popup for, so a
+  // re-render with the same lastMatch (e.g. a resize) doesn't duplicate it.
+  const lastPopupIdRef = useRef(null);
 
   // Full board width — used to slide wrapped main-row balls in from the
   // opposite edge instead of sliding them across the whole board.
   const boardWidth = cellSize * COLS;
+
+  // Populate the very first set of ball positions synchronously during the
+  // initial render (not inside useEffect). useEffect runs *after* the first
+  // paint, and animsRef is just a ref — populating it there doesn't trigger
+  // a re-render, so the board would stay visually empty until some unrelated
+  // state change (e.g. the 5s auto-ball-add timer) forced a re-render. Doing
+  // it here means the very first paint already has every ball placed.
+  if (prevRef.current === null && animsRef.current.size === 0) {
+    prevRef.current = board;
+    forEachCell(board, (ball, row, col) => {
+      animsRef.current.set(ball.id, {
+        top: new Animated.Value(row * cellSize),
+        left: new Animated.Value(col * cellSize),
+        scaleY: new Animated.Value(1),
+        opacity: new Animated.Value(1),
+        type: ball.type,
+        row, col,
+      });
+    });
+  }
 
   // Re-snap all balls to their grid position when cellSize changes (resize),
   // without animating.
@@ -323,7 +378,10 @@ function useBallAnimations(board, cellSize, dragInfo) {
     prevRef.current = board;
 
     if (!prev) {
-      // First render: place every ball at its resting position, no animation.
+      // Defensive fallback only — the initial population now happens
+      // synchronously above, so prevRef.current is already set by the time
+      // this effect runs. Kept in case useBallAnimations is ever called
+      // before any render has populated it.
       forEachCell(board, (ball, row, col) => {
         animsRef.current.set(ball.id, {
           top: new Animated.Value(row * cellSize),
@@ -429,6 +487,7 @@ function useBallAnimations(board, cellSize, dragInfo) {
     if (removed.length) {
       setGhosts(g => [...g, ...removed]);
       removed.forEach((gh) => {
+        const removeGhost = () => setGhosts(g => g.filter(x => x.id !== gh.id));
         Animated.sequence([
           // Pop: brief scale-up + white flash to highlight the match.
           Animated.parallel([
@@ -441,10 +500,60 @@ function useBallAnimations(board, cellSize, dragInfo) {
             Animated.timing(gh.scale,   { toValue: 0.25, duration: CLEAR_DURATION, useNativeDriver: false }),
             Animated.timing(gh.glow,    { toValue: 0,    duration: CLEAR_DURATION, useNativeDriver: false }),
           ]),
-        ]).start(() => {
-          setGhosts(g => g.filter(x => x.id !== gh.id));
-        });
+        ]).start(removeGhost);
+        // Safety net: if the animation's completion callback never fires
+        // (e.g. interrupted by a rapid follow-up chain/resize), force the
+        // ghost out of state shortly after it should have finished fading.
+        // Without this, a "stuck" ghost renders forever as a dim, partially
+        // transparent ball overlapping whatever lands in that cell next.
+        setTimeout(removeGhost, POP_DURATION + CLEAR_DURATION + 100);
       });
+
+      // Floating match-score popup — enlarges and fades out over the centroid
+      // of the matched balls. lastMatch carries the gain/chain/combo/maxSize
+      // info computed by the reducer for this exact clear event; guard against
+      // re-spawning the same popup if this effect re-runs for the same event.
+      if (lastMatch && lastPopupIdRef.current !== lastMatch.id) {
+        lastPopupIdRef.current = lastMatch.id;
+
+        const avgRow = removed.reduce((s, r) => s + r.row, 0) / removed.length;
+        const avgCol = removed.reduce((s, r) => s + r.col, 0) / removed.length;
+
+        let kind = 'normal';
+        if (lastMatch.chains > 1) kind = 'chain';
+        else if (lastMatch.maxSize >= 5) kind = 'big5';
+        else if (lastMatch.maxSize === 4) kind = 'big4';
+
+        let subText = '';
+        if (lastMatch.chains > 1) subText = `${lastMatch.chains}× CHAIN`;
+        if (lastMatch.combo > 1) {
+          subText = subText ? `${subText}  ×${lastMatch.combo} COMBO` : `×${lastMatch.combo} COMBO`;
+        }
+
+        const popup = {
+          id: lastMatch.id,
+          top: (avgRow + 0.5) * cellSize,
+          left: (avgCol + 0.5) * cellSize,
+          text: `+${lastMatch.gain}`,
+          subText,
+          kind,
+          scale: new Animated.Value(0.4),
+          opacity: new Animated.Value(1),
+          rise: new Animated.Value(0),
+        };
+        setPopups(p => [...p, popup]);
+
+        const targetScale = kind === 'big5' ? 1.9 : kind === 'chain' ? 1.8 : kind === 'big4' ? 1.6 : 1.3;
+        const removePopup = () => setPopups(p => p.filter(x => x.id !== popup.id));
+
+        Animated.parallel([
+          Animated.timing(popup.scale, { toValue: targetScale, duration: POPUP_DURATION, easing: Easing.out(Easing.back(1.4)), useNativeDriver: false }),
+          Animated.timing(popup.rise,  { toValue: -cellSize * 1.4, duration: POPUP_DURATION, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+          Animated.timing(popup.opacity, { toValue: 0, duration: POPUP_DURATION * 0.6, delay: POPUP_DURATION * 0.4, useNativeDriver: false }),
+        ]).start(removePopup);
+        // Safety net, matching the ghost-removal pattern above.
+        setTimeout(removePopup, POPUP_DURATION + 150);
+      }
     }
 
     if (moves.length) Animated.parallel(moves).start();
@@ -452,7 +561,7 @@ function useBallAnimations(board, cellSize, dragInfo) {
     if (bounces.length) {
       setTimeout(() => bounces.forEach(landingBounce), FALL_DURATION);
     }
-  }, [board, cellSize]);
+  }, [board, cellSize, lastMatch]);
 
   const elements = [];
 
@@ -504,6 +613,29 @@ function useBallAnimations(board, cellSize, dragInfo) {
     );
   });
 
+  popups.forEach((p) => {
+    elements.push(
+      <Animated.View
+        key={`popup-${p.id}`}
+        pointerEvents="none"
+        style={[
+          styles.popup,
+          {
+            top: Animated.add(p.rise, p.top - 14),
+            left: p.left,
+            opacity: p.opacity,
+            transform: [{ translateX: '-50%' }, { scale: p.scale }],
+          },
+        ]}
+      >
+        <Text style={[styles.popupText, styles[`popupText_${p.kind}`]]}>{p.text}</Text>
+        {!!p.subText && (
+          <Text style={[styles.popupSubText, styles[`popupSubText_${p.kind}`]]}>{p.subText}</Text>
+        )}
+      </Animated.View>
+    );
+  });
+
   return elements;
 }
 
@@ -514,7 +646,7 @@ function useBallAnimations(board, cellSize, dragInfo) {
 const TAP_THRESHOLD = 10;
 
 const BoardWithControls = React.memo(({
-  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove,
+  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch,
 }) => {
   const swipeThreshold = cellSize * 0.45;
 
@@ -643,7 +775,7 @@ const BoardWithControls = React.memo(({
     })
   ).current;
 
-  const ballElements = useBallAnimations(board, cellSize, dragInfo);
+  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch);
 
   return (
     <View style={styles.boardCtrl}>
@@ -745,20 +877,37 @@ export default function GameScreen({ navigation, route }) {
     AsyncStorage.getItem('tapToMove').then(v => setTapToMove(v === 'true'));
   }, []);
 
+  // ── First-run tutorial ────────────────────────────────────────────────────────
+  // A simplified "how to play" overlay shown the first time a game mode is
+  // started. `showTutorial` starts as `null` (unknown) until the AsyncStorage
+  // check resolves, so it never flashes on screen for returning players.
+  const [showTutorial, setShowTutorial] = useState(null);
+  const [dontShowTutorial, setDontShowTutorial] = useState(false);
+  const showTutorialRef = useRef(false);
+  useEffect(() => {
+    AsyncStorage.getItem('tutorialDismissed').then(v => setShowTutorial(v !== 'true'));
+  }, []);
+  showTutorialRef.current = showTutorial === true;
+
+  const closeTutorial = useCallback(() => {
+    if (dontShowTutorial) AsyncStorage.setItem('tutorialDismissed', 'true');
+    setShowTutorial(false);
+  }, [dontShowTutorial]);
+
   // ── AI timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (mode !== 'ai' || state.gameOver || state.paused) return;
+    if (mode !== 'ai' || state.gameOver || state.paused || showTutorial) return;
     const delay = AI_DELAY[aiDifficulty] ?? AI_DELAY[DEFAULT_AI_DIFFICULTY];
     const t = setTimeout(() => dispatch({ type: 'AI_MOVE' }), delay);
     return () => clearTimeout(t);
-  }, [state.aiTick, state.gameOver, state.paused, mode, aiDifficulty]);
+  }, [state.aiTick, state.gameOver, state.paused, mode, aiDifficulty, showTutorial]);
 
   // ── Solo Time Attack countdown ────────────────────────────────────────────────
   useEffect(() => {
-    if (mode !== 'solo-time' || state.gameOver || state.paused) return;
+    if (mode !== 'solo-time' || state.gameOver || state.paused || showTutorial) return;
     const t = setInterval(() => dispatch({ type: 'TICK' }), 1000);
     return () => clearInterval(t);
-  }, [mode, state.gameOver, state.paused]);
+  }, [mode, state.gameOver, state.paused, showTutorial]);
 
   // ── Automatic ball-add timer (solo modes) ─────────────────────────────────────
   // Every BALL_ADD_INTERVAL ms, BALL_ADD_COUNT balls drop into random columns.
@@ -767,7 +916,7 @@ export default function GameScreen({ navigation, route }) {
   // or pause state changes.
   const ballAddAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (!isSolo || state.gameOver || state.paused) return;
+    if (!isSolo || state.gameOver || state.paused || showTutorial) return;
     ballAddAnim.setValue(0);
     const anim = Animated.timing(ballAddAnim, {
       toValue: 1,
@@ -778,7 +927,7 @@ export default function GameScreen({ navigation, route }) {
     anim.start();
     const t = setTimeout(() => dispatch({ type: 'AUTO_BALL_ADD' }), BALL_ADD_INTERVAL);
     return () => { clearTimeout(t); anim.stop(); };
-  }, [isSolo, state.gameOver, state.paused, state.ballAddTick]);
+  }, [isSolo, state.gameOver, state.paused, state.ballAddTick, showTutorial]);
 
   // ── Message auto-clear ────────────────────────────────────────────────────────
   const msgTimer = useRef(null);
@@ -804,7 +953,7 @@ export default function GameScreen({ navigation, route }) {
 
     const onKey = (e) => {
       const s = stateRef.current;
-      if (s.gameOver) return;
+      if (s.gameOver || showTutorialRef.current) return;
 
       if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
         dispatch({ type: 'TOGGLE_PAUSE' });
@@ -879,16 +1028,14 @@ export default function GameScreen({ navigation, route }) {
 
   // ── Sound effects: matches, chains, penalties, game over ─────────────────────
   useEffect(() => {
-    if (!state.message) return;
-    const isChain = state.message.includes('CHAIN');
-    if (isChain) {
-      const chains = parseInt(state.message, 10) || 2;
-      sfx.playChain(chains);
+    if (!state.lastMatch) return;
+    if (state.lastMatch.chains > 1) {
+      sfx.playChain(state.lastMatch.chains);
     } else {
       sfx.playMatch();
     }
     if (!isSolo) sfx.playPenalty();
-  }, [state.message]);
+  }, [state.lastMatch]);
 
   useEffect(() => {
     if (!state.gameOver) return;
@@ -903,7 +1050,7 @@ export default function GameScreen({ navigation, route }) {
     }
   }, [state.gameOver]);
 
-  const { boards, scores, gameOver, winner, message, selectedCol, paused, timeLeft } = state;
+  const { boards, scores, gameOver, winner, lastMatch, selectedCol, paused, timeLeft } = state;
   const p2Label = mode === 'ai' ? 'CPU' : 'P2';
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -987,11 +1134,6 @@ export default function GameScreen({ navigation, route }) {
           </View>
         )}
 
-        {/* Message */}
-        <View style={styles.msgRow}>
-          {!!message && <Text style={styles.message}>{message}</Text>}
-        </View>
-
         {/* Boards */}
         {isSolo ? (
           <View style={styles.soloRow}>
@@ -1001,11 +1143,12 @@ export default function GameScreen({ navigation, route }) {
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}
-              disabled={gameOver || paused}
+              disabled={gameOver || paused || !!showTutorial}
               selectedCol={isMobile ? -1 : selectedCol}
               cellSize={cellSize}
               boardPx={boardPx}
               tapToMove={tapToMove}
+              lastMatch={lastMatch}
             />
           </View>
         ) : (
@@ -1016,11 +1159,12 @@ export default function GameScreen({ navigation, route }) {
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}
-              disabled={gameOver || paused}
+              disabled={gameOver || paused || !!showTutorial}
               selectedCol={isMobile ? -1 : selectedCol}
               cellSize={cellSize}
               boardPx={boardPx}
               tapToMove={tapToMove}
+              lastMatch={lastMatch}
             />
 
             <View style={styles.divider} />
@@ -1031,11 +1175,12 @@ export default function GameScreen({ navigation, route }) {
               onColSlide={handleP2ColSlide}
               onRowSlide={handleP2RowSlide}
               onCenterTap={handleP2CenterTap}
-              disabled={gameOver || paused || mode === 'ai'}
+              disabled={gameOver || paused || mode === 'ai' || !!showTutorial}
               selectedCol={-1}
               cellSize={cellSize}
               boardPx={boardPx}
               tapToMove={tapToMove}
+              lastMatch={lastMatch}
             />
           </View>
         )}
@@ -1108,6 +1253,36 @@ export default function GameScreen({ navigation, route }) {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* First-run tutorial */}
+      <Modal visible={showTutorial === true} animationType="fade" transparent onRequestClose={closeTutorial}>
+        <View style={styles.tutBackdrop}>
+          <View style={styles.tutSheet}>
+            <Text style={styles.tutTitle}>How to Play</Text>
+
+            <Text style={styles.tutBody}>▼ Drag a column up or down to slide its balls.</Text>
+            <Text style={styles.tutBody}>↔ Swipe the gold middle row left or right.</Text>
+            <Text style={styles.tutBody}>🌈 Match 3 or more same-colour balls to clear them.</Text>
+            <Text style={styles.tutBody}>💥 Bigger matches and chain reactions score more.</Text>
+            <Text style={styles.tutBody}>⚡ Tap the centre ball for a fresh wave of balls.</Text>
+
+            <TouchableOpacity
+              style={styles.tutCheckRow}
+              activeOpacity={0.7}
+              onPress={() => setDontShowTutorial(d => !d)}
+            >
+              <View style={[styles.tutCheckbox, dontShowTutorial && styles.tutCheckboxChecked]}>
+                {dontShowTutorial && <Text style={styles.tutCheckmark}>✓</Text>}
+              </View>
+              <Text style={styles.tutCheckLabel}>Don't show this again</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.goBtn} onPress={() => { sfx.playClick(); closeTutorial(); }}>
+              <Text style={styles.goBtnTxt}>Got it!</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1153,9 +1328,41 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(30,144,255,0.45)',
   },
 
-  // Message
-  msgRow:  { height: 26, justifyContent: 'center' },
-  message: { color: '#FFD700', fontSize: 17, fontWeight: 'bold', letterSpacing: 1 },
+  // Floating match-score popup — rendered over the matched balls' centroid,
+  // enlarging and fading out (see useBallAnimations()). Variants below give
+  // 4-matches, 5-matches, and chain matches their own celebration styling.
+  popup: {
+    position: 'absolute',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  popupText: {
+    fontWeight: 'bold',
+    color: '#FFD700',
+    fontSize: 18,
+    letterSpacing: 1,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  popupText_normal: {},
+  popupText_big4: { color: '#FFA500', fontSize: 22 },
+  popupText_big5: { color: '#FF4D6D', fontSize: 26 },
+  popupText_chain: { color: '#5FE0FF', fontSize: 24 },
+  popupSubText: {
+    fontWeight: 'bold',
+    color: '#FFD700',
+    fontSize: 12,
+    letterSpacing: 1,
+    marginTop: 1,
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  popupSubText_normal: {},
+  popupSubText_big4: { color: '#FFA500' },
+  popupSubText_big5: { color: '#FF4D6D' },
+  popupSubText_chain: { color: '#5FE0FF' },
 
   // Boards container
   boardsRow: { flexDirection: 'row', alignItems: 'flex-start' },
@@ -1291,4 +1498,45 @@ const styles = StyleSheet.create({
   goBtnSecondary:    { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#333' },
   goBtnTxt:          { color: '#FFF', fontSize: 17, fontWeight: 'bold', letterSpacing: 1 },
   goBtnTxtSecondary: { color: '#666' },
+
+  // First-run tutorial modal
+  tutBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  tutSheet: {
+    backgroundColor: '#13132B',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1E1E44',
+    padding: 24,
+    maxWidth: 360,
+    width: '100%',
+    alignItems: 'center',
+  },
+  tutTitle: { color: '#FFD700', fontSize: 22, fontWeight: 'bold', letterSpacing: 1, marginBottom: 16 },
+  tutBody:  { color: '#CCC', fontSize: 14, lineHeight: 22, alignSelf: 'flex-start', marginBottom: 6 },
+  tutCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 14,
+    marginBottom: 18,
+  },
+  tutCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#555',
+    marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tutCheckboxChecked: { backgroundColor: '#1E90FF', borderColor: '#1E90FF' },
+  tutCheckmark: { color: '#FFF', fontSize: 13, fontWeight: 'bold' },
+  tutCheckLabel: { color: '#999', fontSize: 13 },
 });

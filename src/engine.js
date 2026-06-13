@@ -215,13 +215,16 @@ export function applyGravity(board) {
  * Repeatedly find and clear horizontal runs of MATCH_MIN+ same-colour balls
  * in MAIN_ROW, apply gravity, then loop until no matches remain.
  *
- * Returns { board, cleared, chains, rawScore }.
+ * Returns { board, cleared, chains, rawScore, sizes }.
  *   cleared  — total balls removed
  *   chains   — number of separate clear rounds (1 = single, 2+ = chain reaction)
  *   rawScore — score earned from match sizes (size * SCORE_PER_BALL +
  *              MATCH_SIZE_BONUS[size]), summed across every match cleared.
  *              Larger matches are worth disproportionately more, since
  *              they're harder to set up than smaller ones.
+ *   sizes    — array of each individual match run's size (3/4/5/...), one
+ *              entry per match cleared across every round — used to drive
+ *              "big match" celebration effects (e.g. 4/5-matches).
  */
 export function resolveMatches(board) {
   // Always apply gravity first so balls cluster around MAIN_ROW before matching
@@ -229,6 +232,7 @@ export function resolveMatches(board) {
   let totalCleared = 0;
   let chains = 0;
   let rawScore = 0;
+  const sizes = [];
 
   while (true) {
     let roundCleared = 0;
@@ -247,6 +251,7 @@ export function resolveMatches(board) {
         for (let i = c; i < end; i++) current[MAIN_ROW][i] = null;
         roundCleared += size;
         roundScore += size * SCORE_PER_BALL + (MATCH_SIZE_BONUS[size] ?? 0);
+        sizes.push(size);
       }
       c = end;
     }
@@ -259,7 +264,7 @@ export function resolveMatches(board) {
     current = applyGravity(current);
   }
 
-  return { board: current, cleared: totalCleared, chains, rawScore };
+  return { board: current, cleared: totalCleared, chains, rawScore, sizes };
 }
 
 // ── Main-row guarantee ────────────────────────────────────────────────────────
@@ -401,28 +406,30 @@ const MAX_SETTLE_ROUNDS = 25;
  * MAIN_ROW (which a single resolveMatches() + ensureMainRowFull() pass would
  * miss, leaving an un-cleared match sitting in the main row).
  *
- * Returns { board, cleared, chains, rawScore } — totals across every round.
+ * Returns { board, cleared, chains, rawScore, sizes } — totals across every round.
  */
 export function settleBoard(board) {
   let current = board;
   let totalCleared = 0;
   let totalChains  = 0;
   let totalRawScore = 0;
+  const sizes = [];
 
   for (let round = 0; round < MAX_SETTLE_ROUNDS; round++) {
     const before = boardSnapshot(current);
 
-    const { board: resolved, cleared, chains, rawScore } = resolveMatches(current);
+    const { board: resolved, cleared, chains, rawScore, sizes: roundSizes } = resolveMatches(current);
     totalCleared += cleared;
     totalChains  += chains;
     totalRawScore += rawScore;
+    sizes.push(...roundSizes);
 
     current = ensureMainRowFull(resolved);
 
     if (boardSnapshot(current) === before) break; // stable — nothing changed
   }
 
-  return { board: current, cleared: totalCleared, chains: totalChains, rawScore: totalRawScore };
+  return { board: current, cleared: totalCleared, chains: totalChains, rawScore: totalRawScore, sizes };
 }
 
 // ── Penalty system ────────────────────────────────────────────────────────────
