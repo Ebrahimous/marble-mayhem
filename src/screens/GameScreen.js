@@ -289,6 +289,9 @@ const SLIDE_EASING   = Easing.out(Easing.cubic);
 const SQUASH_EASING  = Easing.out(Easing.quad);
 const RECOVER_EASING = Easing.out(Easing.back(1.6));
 
+// Size of the little balls used in the first-run tutorial's illustrations.
+const TUT_BALL = 18;
+
 /** Call `fn(ball, row, col)` for every occupied cell on the board. */
 function forEachCell(board, fn) {
   for (let r = 0; r < board.length; r++) {
@@ -1282,17 +1285,63 @@ export default function GameScreen({ navigation, route }) {
         </View>
       )}
 
-      {/* First-run tutorial */}
+      {/* First-run tutorial — minimal-word, illustration-led */}
       <Modal visible={showTutorial === true} animationType="fade" transparent onRequestClose={closeTutorial}>
         <View style={styles.tutBackdrop}>
           <View style={styles.tutSheet}>
             <Text style={styles.tutTitle}>How to Play</Text>
 
-            <Text style={styles.tutBody}>▼ Drag a column up or down to slide its balls.</Text>
-            <Text style={styles.tutBody}>↔ Swipe the gold middle row left or right.</Text>
-            <Text style={styles.tutBody}>🌈 Match 3 or more same-colour balls to clear them.</Text>
-            <Text style={styles.tutBody}>💥 Bigger matches and chain reactions score more.</Text>
-            <Text style={styles.tutBody}>⚡ Tap the centre ball for a fresh wave of balls.</Text>
+            <View style={styles.tutGrid}>
+              {/* Drag a column up/down */}
+              <View style={styles.tutCell}>
+                <View style={styles.tutIllusBox}>
+                  <Text style={styles.tutArrow}>▲</Text>
+                  <View style={styles.tutColStack}>
+                    <BallView type="blue" size={TUT_BALL} />
+                    <BallView type="green" size={TUT_BALL} />
+                    <BallView type="purple" size={TUT_BALL} />
+                  </View>
+                  <Text style={styles.tutArrow}>▼</Text>
+                </View>
+                <Text style={styles.tutCaption}>Drag columns</Text>
+              </View>
+
+              {/* Swipe the main row left/right */}
+              <View style={styles.tutCell}>
+                <View style={[styles.tutIllusBox, styles.tutIllusRow]}>
+                  <Text style={styles.tutArrow}>◀</Text>
+                  <View style={styles.tutRowBar}>
+                    <BallView type="amber" size={TUT_BALL} />
+                    <BallView type="red" size={TUT_BALL} />
+                    <BallView type="blue" size={TUT_BALL} />
+                  </View>
+                  <Text style={styles.tutArrow}>▶</Text>
+                </View>
+                <Text style={styles.tutCaption}>Swipe gold row</Text>
+              </View>
+
+              {/* Match 3+ same-colour balls */}
+              <View style={styles.tutCell}>
+                <View style={[styles.tutIllusBox, styles.tutIllusRow]}>
+                  <Text style={styles.tutSparkle}>✨</Text>
+                  <View style={styles.tutMatchRow}>
+                    <BallView type="red" size={TUT_BALL} />
+                    <BallView type="red" size={TUT_BALL} />
+                    <BallView type="red" size={TUT_BALL} />
+                  </View>
+                </View>
+                <Text style={styles.tutCaption}>Match 3+ to clear</Text>
+              </View>
+
+              {/* Tap centre ball for a fresh wave */}
+              <View style={styles.tutCell}>
+                <View style={styles.tutIllusBox}>
+                  <Text style={styles.tutTapIcon}>👆</Text>
+                  <BallView type="amber" size={TUT_BALL + 6} />
+                </View>
+                <Text style={styles.tutCaption}>Tap centre for new balls</Text>
+              </View>
+            </View>
 
             <TouchableOpacity
               style={styles.tutCheckRow}
@@ -1546,7 +1595,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tutTitle: { color: '#FFD700', fontSize: 22, fontWeight: 'bold', letterSpacing: 1, marginBottom: 16 },
-  tutBody:  { color: '#CCC', fontSize: 14, lineHeight: 22, alignSelf: 'flex-start', marginBottom: 6 },
+
+  // Illustration grid — 2x2 cards, each a tiny diagram + 2-4 word caption.
+  tutGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  tutCell: {
+    width: '48%',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  tutIllusBox: {
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  tutIllusRow: { flexDirection: 'row' },
+  tutColStack: {
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  tutRowBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,215,0,0.15)',
+    borderRadius: 6,
+    paddingHorizontal: 2,
+  },
+  tutMatchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFD700',
+    borderRadius: 6,
+    paddingHorizontal: 2,
+  },
+  tutArrow: { color: '#FFD700', fontSize: 16, fontWeight: 'bold' },
+  tutSparkle: { fontSize: 16, position: 'absolute', top: -2 },
+  tutTapIcon: { fontSize: 18, position: 'absolute', top: -4 },
+  tutCaption: { color: '#CCC', fontSize: 13, textAlign: 'center' },
+
   tutCheckRow: {
     flexDirection: 'row',
     alignItems: 'center',
