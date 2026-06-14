@@ -642,18 +642,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
           },
         ]}
       >
-        {/* Main-row balls get a soft gold glow ring so the only
-            row that can be slid horizontally (and matched) reads
-            as visually "active" compared to the dimmed rows below. */}
-        {row === MAIN_ROW && (
-          <View
-            pointerEvents="none"
-            style={[styles.mainRowGlow, { width: cellSize * 1.3, height: cellSize * 1.3 }]}
-          />
-        )}
-        <View style={row === MAIN_ROW ? null : styles.outerRowBall}>
-          <BallView type={a.type} size={cellSize} />
-        </View>
+        <BallView type={a.type} size={cellSize} />
       </Animated.View>
     );
   });
@@ -895,24 +884,6 @@ const BoardWithControls = React.memo(({
           {ballElements}
         </View>
 
-        {/* Frosted-glass panels over the non-main rows show those rows are
-            "inactive" (vertical-slide only) without darkening the board. */}
-        <View
-          pointerEvents="none"
-          style={[styles.frostOverlay, { top: 1, width: boardPx - 2, height: cellSize * MAIN_ROW }]}
-        />
-        <View
-          pointerEvents="none"
-          style={[
-            styles.frostOverlay,
-            {
-              top: 1 + cellSize * (MAIN_ROW + 1),
-              width: boardPx - 2,
-              height: cellSize * (board.length - MAIN_ROW - 1),
-            },
-          ]}
-        />
-
         {!disabled && (
           <View
             {...panResponder.panHandlers}
@@ -920,29 +891,6 @@ const BoardWithControls = React.memo(({
             pointerEvents="box-only"
           />
         )}
-
-        {/* Directional cues: a ▲▼ pair above/below every column hints
-            that columns slide vertically, while ◀▶ arrows flank the
-            glowing main row to show it's the one that slides
-            horizontally and produces matches. */}
-        <View pointerEvents="none" style={[styles.vArrowRow, { width: boardPx, top: -13 }]}>
-          {Array.from({ length: COLS }).map((_, i) => (
-            <Text key={`vt-${i}`} style={[styles.vArrowTxt, { width: cellSize }]}>▲</Text>
-          ))}
-        </View>
-        <View pointerEvents="none" style={[styles.vArrowRow, { width: boardPx, top: cellSize * board.length + 1 }]}>
-          {Array.from({ length: COLS }).map((_, i) => (
-            <Text key={`vb-${i}`} style={[styles.vArrowTxt, { width: cellSize }]}>▼</Text>
-          ))}
-        </View>
-        <Text
-          pointerEvents="none"
-          style={[styles.hArrowTxt, { left: -14, top: cellSize * MAIN_ROW + cellSize / 2 - 8 }]}
-        >◀</Text>
-        <Text
-          pointerEvents="none"
-          style={[styles.hArrowTxt, { left: boardPx + 2, top: cellSize * MAIN_ROW + cellSize / 2 - 8 }]}
-        >▶</Text>
       </View>
     </View>
   );
@@ -1591,59 +1539,6 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     borderRadius: 999,
     backgroundColor: '#FFFFFF',
-  },
-
-  // Soft gold halo behind every main-row ball — pairs with outerRowBall's
-  // dimming to make the slidable/matchable row visually "active".
-  mainRowGlow: {
-    position: 'absolute',
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,204,0,0.18)',
-  },
-  // Balls outside the main row are softened — they can only slide
-  // vertically and never take part in a match. A frosted-glass overlay
-  // (frostOverlay, below) sits on top of these rows for the "inactive"
-  // look, so the balls themselves only need a light dim.
-  outerRowBall: {
-    opacity: 0.6,
-  },
-
-  // Frosted-glass panel over the non-main rows: a soft translucent white
-  // layer (with blur on web) giving the "inactive" top/bottom areas a
-  // frosted-glass look instead of plain darkening.
-  frostOverlay: {
-    position: 'absolute',
-    left: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    ...Platform.select({
-      web: { backdropFilter: 'blur(2px)' },
-      default: {},
-    }),
-  },
-
-  // Directional cue arrows around the board: ▲▼ above/below each column
-  // (vertical slide hint) and ◀▶ flanking the main row (horizontal slide /
-  // match hint).
-  vArrowRow: {
-    position: 'absolute',
-    left: 0,
-    flexDirection: 'row',
-  },
-  vArrowTxt: {
-    textAlign: 'center',
-    color: 'rgba(255,204,0,0.45)',
-    fontSize: 10,
-    lineHeight: 12,
-  },
-  hArrowTxt: {
-    position: 'absolute',
-    width: 12,
-    height: 16,
-    textAlign: 'center',
-    color: '#FFCC00',
-    fontSize: 13,
-    fontWeight: 'bold',
-    opacity: 0.6,
   },
 
   // Main row — gold frame lines top + bottom
