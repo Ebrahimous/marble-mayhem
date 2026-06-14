@@ -895,6 +895,24 @@ const BoardWithControls = React.memo(({
           {ballElements}
         </View>
 
+        {/* Frosted-glass panels over the non-main rows show those rows are
+            "inactive" (vertical-slide only) without darkening the board. */}
+        <View
+          pointerEvents="none"
+          style={[styles.frostOverlay, { top: 1, width: boardPx - 2, height: cellSize * MAIN_ROW }]}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.frostOverlay,
+            {
+              top: 1 + cellSize * (MAIN_ROW + 1),
+              width: boardPx - 2,
+              height: cellSize * (board.length - MAIN_ROW - 1),
+            },
+          ]}
+        />
+
         {!disabled && (
           <View
             {...panResponder.panHandlers}
@@ -1582,10 +1600,25 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(255,204,0,0.18)',
   },
-  // Balls outside the main row are dimmed — they can only slide vertically
-  // and never take part in a match.
+  // Balls outside the main row are softened — they can only slide
+  // vertically and never take part in a match. A frosted-glass overlay
+  // (frostOverlay, below) sits on top of these rows for the "inactive"
+  // look, so the balls themselves only need a light dim.
   outerRowBall: {
-    opacity: 0.35,
+    opacity: 0.6,
+  },
+
+  // Frosted-glass panel over the non-main rows: a soft translucent white
+  // layer (with blur on web) giving the "inactive" top/bottom areas a
+  // frosted-glass look instead of plain darkening.
+  frostOverlay: {
+    position: 'absolute',
+    left: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    ...Platform.select({
+      web: { backdropFilter: 'blur(2px)' },
+      default: {},
+    }),
   },
 
   // Directional cue arrows around the board: ▲▼ above/below each column
