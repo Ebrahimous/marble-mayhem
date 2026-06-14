@@ -107,6 +107,23 @@ export function createInitialBoard() {
   return settled;
 }
 
+/**
+ * Returns a board completely filled (every cell, all ROWS×COLS) with random
+ * balls — the starting layout for "Relax" mode. Any accidental matches in
+ * MAIN_ROW are pre-resolved via resolveMatchesRelax() so the game starts
+ * clean (and stays completely full, per relax-mode refill rules).
+ */
+export function createFullBoard() {
+  const board = createBoard();
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      board[r][c] = makeBall();
+    }
+  }
+  const { board: settled } = resolveMatchesRelax(board);
+  return settled;
+}
+
 // ── Column slides ─────────────────────────────────────────────────────────────
 
 /** Shift every ball in `col` up one row. Returns { board, moved }. */
@@ -151,6 +168,29 @@ export function slideColumnDown(board, col) {
   const next = cloneBoard(board);
   for (let r = ROWS - 1; r > 0; r--) next[r][col] = next[r - 1][col];
   next[0][col] = null;
+  return { board: next, moved: true };
+}
+
+// ── Column slides (wrap — Relax mode) ───────────────────────────────────────────
+// Relax mode's board is always completely full, so there's never an empty
+// cell to shift into — instead, the ball at one end wraps around to the
+// other end, just like the main row's left/right wrap.
+
+/** Shift every ball in `col` up one row; the top ball wraps to the bottom. */
+export function slideColumnUpWrap(board, col) {
+  const next = cloneBoard(board);
+  const first = next[0][col];
+  for (let r = 0; r < ROWS - 1; r++) next[r][col] = next[r + 1][col];
+  next[ROWS - 1][col] = first;
+  return { board: next, moved: true };
+}
+
+/** Shift every ball in `col` down one row; the bottom ball wraps to the top. */
+export function slideColumnDownWrap(board, col) {
+  const next = cloneBoard(board);
+  const last = next[ROWS - 1][col];
+  for (let r = ROWS - 1; r > 0; r--) next[r][col] = next[r - 1][col];
+  next[0][col] = last;
   return { board: next, moved: true };
 }
 
@@ -262,6 +302,69 @@ export function resolveMatches(board) {
     rawScore += roundScore;
     chains++;
     current = applyGravity(current);
+  }
+
+  return { board: current, cleared: totalCleared, chains, rawScore, sizes };
+}
+
+/**
+ * Relax-mode match resolution. The board is always completely full, so
+ * there's no gravity step and no "ensure main row full" top-up — instead,
+ * whenever a MAIN_ROW run of MATCH_MIN+ same-colour balls is cleared, every
+ * column involved drops its above-MAIN_ROW balls down by one and a fresh
+ * ball enters at the very top of the column (row 0), keeping the board full.
+ * Loops until no matches remain (chain reactions included).
+ *
+ * Returns { board, cleared, chains, rawScore, sizes } — same shape as
+ * resolveMatches().
+ */
+export function resolveMatchesRelax(board) {
+  let current = cloneBoard(board);
+  let totalCleared = 0;
+  let chains = 0;
+  let rawScore = 0;
+  const sizes = [];
+
+  while (true) {
+    let roundCleared = 0;
+    let roundScore = 0;
+    const clearedCols = [];
+
+    let c = 0;
+    while (c < COLS) {
+      const cell = current[MAIN_ROW][c];
+      if (!cell) { c++; continue; }
+
+      let end = c + 1;
+      while (end < COLS && current[MAIN_ROW][end]?.type === cell.type) end++;
+
+      const size = end - c;
+      if (size >= MATCH_MIN) {
+        for (let i = c; i < end; i++) {
+          current[MAIN_ROW][i] = null;
+          clearedCols.push(i);
+        }
+        roundCleared += size;
+        roundScore += size * SCORE_PER_BALL + (MATCH_SIZE_BONUS[size] ?? 0);
+        sizes.push(size);
+      }
+      c = end;
+    }
+
+    if (roundCleared === 0) break;
+
+    totalCleared += roundCleared;
+    rawScore += roundScore;
+    chains++;
+
+    // Drop each cleared column's above-MAIN_ROW balls down by one, then
+    // spawn a fresh ball at row 0 (top of the column).
+    for (const col of clearedCols) {
+      for (let r = MAIN_ROW; r > 0; r--) current[r][col] = current[r - 1][col];
+      const ball = makeBall();
+      ball.spawnSide = 'top';
+      current[0][col] = ball;
+    }
   }
 
   return { board: current, cleared: totalCleared, chains, rawScore, sizes };

@@ -27,13 +27,17 @@ import {
 
 import {
   createInitialBoard,
+  createFullBoard,
   cloneBoard,
   slideColumnUp,
   slideColumnDown,
+  slideColumnUpWrap,
+  slideColumnDownWrap,
   slideMainRowLeft,
   slideMainRowRight,
   isBoardFull,
   settleBoard,
+  resolveMatchesRelax,
   addPenaltyBall,
   spawnBallWave,
   addRandomBalls,
@@ -48,11 +52,12 @@ import * as sfx from '../sounds';
 
 function createInitialState(mode, ballCount = 5) {
   setBallTypes(ballCount === 6 ? BALL_TYPES_6 : BALL_TYPES_5);
-  const isSolo = mode === 'solo-time' || mode === 'solo-normal';
+  const isSolo = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax';
   return {
     mode,
     ballCount,
-    boards:      isSolo ? [createInitialBoard()] : [createInitialBoard(), createInitialBoard()],
+    boards:      mode === 'relax' ? [createFullBoard()]
+                : isSolo ? [createInitialBoard()] : [createInitialBoard(), createInitialBoard()],
     scores:      isSolo ? [0] : [0, 0],
     combos:      isSolo ? [0] : [0, 0],
     gameOver:    false,
@@ -93,8 +98,12 @@ function applySlide(state, playerIdx, slidedBoard) {
   let lastMatch  = state.lastMatch;
 
   // Resolve matches, top up the main row, and keep settling until stable
-  // (catches chain matches formed by newly-spawned balls).
-  const { board: settled, cleared, chains, rawScore, sizes } = settleBoard(slidedBoard);
+  // (catches chain matches formed by newly-spawned balls). Relax mode uses
+  // its own resolver — the board is always full, so cleared balls are
+  // replaced by a fresh ball dropping in from the top of the column instead
+  // of the usual gravity + main-row top-up.
+  const { board: settled, cleared, chains, rawScore, sizes } =
+    state.mode === 'relax' ? resolveMatchesRelax(slidedBoard) : settleBoard(slidedBoard);
   boards[playerIdx] = settled;
 
   if (cleared > 0) {
@@ -171,9 +180,13 @@ function gameReducer(state, action) {
       if (state.paused) return state;
       const { player, col, dir } = action;
       if (state.mode === 'ai' && player === 1) return state;
-      const { board, moved } = (dir === 'up' ? slideColumnUp : slideColumnDown)(
-        state.boards[player], col
-      );
+      // Relax mode: the board is always full, so a column slide wraps the
+      // end ball around to the other side instead of shifting into empty
+      // space (same idea as the main row's left/right wrap).
+      const slideFns = state.mode === 'relax'
+        ? { up: slideColumnUpWrap, down: slideColumnDownWrap }
+        : { up: slideColumnUp, down: slideColumnDown };
+      const { board, moved } = slideFns[dir](state.boards[player], col);
       if (!moved) return state;
       return applySlide(state, player, board);
     }
@@ -882,7 +895,7 @@ export default function GameScreen({ navigation, route }) {
   const ballCount   = route?.params?.ballCount ?? 5;
   const aiDifficulty = route?.params?.aiDifficulty ?? DEFAULT_AI_DIFFICULTY;
   const insets = useSafeAreaInsets();
-  const isSolo  = mode === 'solo-time' || mode === 'solo-normal';
+  const isSolo  = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax';
 
   // Recompute board sizing whenever the viewport changes (resize/orientation).
   // Solo modes render a single board, so it can use nearly the full width.
@@ -947,7 +960,9 @@ export default function GameScreen({ navigation, route }) {
   // or pause state changes.
   const ballAddAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (!isSolo || state.gameOver || state.paused || showTutorial) return;
+    // Relax mode has no global ball-add timer — balls only enter via the
+    // top-of-column refill when a match clears.
+    if (!isSolo || mode === 'relax' || state.gameOver || state.paused || showTutorial) return;
     ballAddAnim.setValue(0);
     const anim = Animated.timing(ballAddAnim, {
       toValue: 1,
@@ -1153,8 +1168,9 @@ export default function GameScreen({ navigation, route }) {
         </View>
 
         {/* Ball-add timer indicator — thin line that fills up over
-            BALL_ADD_INTERVAL ms, then resets when new balls drop in. */}
-        {isSolo && (
+            BALL_ADD_INTERVAL ms, then resets when new balls drop in.
+            Not shown in Relax mode, which has no such timer. */}
+        {isSolo && mode !== 'relax' && (
           <View style={styles.ballAddTrack}>
             <Animated.View
               style={[
@@ -1170,7 +1186,7 @@ export default function GameScreen({ navigation, route }) {
           <View style={styles.soloRow}>
             <BoardWithControls
               board={boards[0]}
-              label={mode === 'solo-time' ? 'TIME ATTACK' : 'ENDLESS'}
+              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'RELAX' : 'ENDLESS'}
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}

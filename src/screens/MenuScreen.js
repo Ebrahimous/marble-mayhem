@@ -298,6 +298,18 @@ export default function MenuScreen({ navigation }) {
               </View>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[styles.modeBtn, styles.modeBtnAlt]}
+              onPress={() => { setSolo(false); play('relax'); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modeBtnIcon}>🧘</Text>
+              <View>
+                <Text style={styles.modeBtnLabel}>RELAX</Text>
+                <Text style={styles.modeBtnSub}>Full board · no timer · just match</Text>
+              </View>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setSolo(false); }}>
               <Text style={styles.sheetCloseTxt}>Cancel</Text>
             </TouchableOpacity>
