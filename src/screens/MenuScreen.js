@@ -14,9 +14,14 @@ import * as sfx from '../sounds';
 // focused entirely on solo mode. Flip to true to bring them back.
 const SHOW_MULTIPLAYER_MODES = false;
 
+// Solo modes each keep their own high score (AsyncStorage key
+// `highScore_<mode>`), so a Relax run doesn't overwrite a Time Attack or
+// Endless best.
+const SOLO_MODES = ['solo-time', 'solo-normal', 'relax'];
+
 export default function MenuScreen({ navigation }) {
   const insets    = useSafeAreaInsets();
-  const [high, setHigh]           = useState(0);
+  const [bestScores, setBestScores] = useState({});
   const [showHelp, setHelp]       = useState(false);
   const [showSolo, setSolo]       = useState(false);
   const [showAI, setShowAI]       = useState(false);
@@ -33,14 +38,20 @@ export default function MenuScreen({ navigation }) {
     AsyncStorage.getItem('aiDifficulty').then(v => v && setAiDifficulty(v));
   }, []);
 
-  // Re-read the high score every time the menu regains focus (e.g. coming
-  // back from a game that just set a new high score) — a plain mount-only
-  // effect would keep showing the stale value until a full page refresh.
+  // Re-read each solo mode's high score every time the menu regains focus
+  // (e.g. coming back from a game that just set a new high score) — a plain
+  // mount-only effect would keep showing stale values until a full refresh.
   useFocusEffect(
     useCallback(() => {
-      AsyncStorage.getItem('highScore').then(v => setHigh(v ? parseInt(v, 10) : 0));
+      Promise.all(SOLO_MODES.map(m => AsyncStorage.getItem(`highScore_${m}`))).then(vals => {
+        const next = {};
+        SOLO_MODES.forEach((m, i) => { next[m] = vals[i] ? parseInt(vals[i], 10) : 0; });
+        setBestScores(next);
+      });
     }, [])
   );
+
+  const overallBest = Math.max(0, ...SOLO_MODES.map(m => bestScores[m] ?? 0));
 
   const toggleBallCount = () => {
     sfx.playClick();
@@ -114,11 +125,12 @@ export default function MenuScreen({ navigation }) {
         ))}
       </View>
 
-      {/* High score */}
-      {high > 0 && (
+      {/* High score — best across all solo modes (each mode also shows its
+          own best in the Solo Mode picker below). */}
+      {overallBest > 0 && (
         <View style={styles.highBox}>
           <Text style={styles.highLabel}>BEST SCORE</Text>
-          <Text style={styles.highVal}>{high.toLocaleString()}</Text>
+          <Text style={styles.highVal}>{overallBest.toLocaleString()}</Text>
         </View>
       )}
 
@@ -283,6 +295,9 @@ export default function MenuScreen({ navigation }) {
               <View>
                 <Text style={styles.modeBtnLabel}>TIME ATTACK</Text>
                 <Text style={styles.modeBtnSub}>1 minute · score as much as you can</Text>
+                {bestScores['solo-time'] > 0 && (
+                  <Text style={styles.modeBtnBest}>Best: {bestScores['solo-time'].toLocaleString()}</Text>
+                )}
               </View>
             </TouchableOpacity>
 
@@ -295,6 +310,9 @@ export default function MenuScreen({ navigation }) {
               <View>
                 <Text style={styles.modeBtnLabel}>ENDLESS</Text>
                 <Text style={styles.modeBtnSub}>No time limit · play until stuck</Text>
+                {bestScores['solo-normal'] > 0 && (
+                  <Text style={styles.modeBtnBest}>Best: {bestScores['solo-normal'].toLocaleString()}</Text>
+                )}
               </View>
             </TouchableOpacity>
 
@@ -307,6 +325,9 @@ export default function MenuScreen({ navigation }) {
               <View>
                 <Text style={styles.modeBtnLabel}>RELAX</Text>
                 <Text style={styles.modeBtnSub}>Full board · no timer · just match</Text>
+                {bestScores['relax'] > 0 && (
+                  <Text style={styles.modeBtnBest}>Best: {bestScores['relax'].toLocaleString()}</Text>
+                )}
               </View>
             </TouchableOpacity>
 
@@ -478,6 +499,7 @@ const styles = StyleSheet.create({
   modeBtnIcon:  { fontSize: 28 },
   modeBtnLabel: { color: '#FFF', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   modeBtnSub:   { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 },
+  modeBtnBest:  { color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 2 },
   modeBtnCentered:    { justifyContent: 'center' },
   modeBtnTextCentered: { alignItems: 'center' },
   modeBtnTextCenter:  { textAlign: 'center' },

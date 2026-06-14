@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-14 (Relax mode)_
+_Last updated: 2026-06-14 (per-mode high scores)_
 
 ## Current state
 
@@ -494,4 +494,81 @@ the new illustration grid renders correctly and "Don't show this again" +
     main row's left/right wrap), and `resolveMatchesRelax()` — on a match,
     cleared cells are refilled by shifting the column's above-MAIN_ROW balls
     down one and spawning a fresh ball at row 0 (top of column), instead of
-    the usual gravity + random main-row to
+    the usual gravity + random main-row top-up.
+  - `src/screens/GameScreen.js`: `mode === 'relax'` wired through
+    `createInitialState` (full board, `timeLeft: null`), `isSolo` (both the
+    reducer-adjacent helper and the component-level constant), `COL_SLIDE`
+    (uses the wrap slide fns + `resolveMatchesRelax` via `applySlide`), the
+    ball-add timer effect (disabled for relax), the ball-add progress bar
+    (hidden for relax), and the solo board label ("RELAX").
+  - `src/screens/MenuScreen.js`: new 🧘 "RELAX" button in the Solo Mode
+    picker modal ("Full board · no timer · just match").
+  - All three files verified via `esbuild` syntax check; pushed as
+    `76432c7` (bundled with the two prior unpushed commits above).
+
+**To playtest**: from the Solo Mode picker, choose RELAX. Board should start
+completely full. Sliding a column up/down should wrap the end ball to the
+opposite end (no "blocked" slides). A match should clear in place and
+immediately backfill from the top of the column with a new ball, keeping the
+board full at all times. No timer or ball-add progress bar should be shown.
+
+## Session 2026-06-14 (per-mode high scores; BEST shown alongside SCORE)
+
+Relax mode already shared the same scoring engine (combo multiplier, chain
+bonus, match-size bonus) as the other solo modes via `applySlide` +
+`resolveMatchesRelax` — no engine changes were needed for that part. This
+session's actual change: each solo mode now tracks its **own** high score
+instead of one shared `'highScore'` key.
+
+- `src/screens/GameScreen.js`:
+  - Replaced the old gameOver-only high-score effect (single `'highScore'`
+    AsyncStorage key) with a per-mode `highScore_${mode}` key
+    (`highScore_solo-time`, `highScore_solo-normal`, `highScore_relax`).
+  - New `bestScore` state, loaded once on mount from `highScore_${mode}`.
+  - Because Relax mode never sets `gameOver = true`, the high score is now
+    checked on every score change (not just at game over): whenever
+    `state.scores[0]` increases past the stored best, the new best is saved
+    and `bestScore` updated.
+  - Solo game-over overlay now shows **BEST** alongside **SCORE** (reuses
+    existing `goScores`/`goScoreCol`/`goScoreLabel`/`goScoreVal`/
+    `goScoreSep` styles — no new styles needed).
+- `src/screens/MenuScreen.js`:
+  - New `SOLO_MODES = ['solo-time', 'solo-normal', 'relax']` constant.
+  - Replaced the single `high`/`'highScore'` state+effect with `bestScores`
+    (an object keyed by mode), refreshed via the existing `useFocusEffect`
+    (reads all three `highScore_${mode}` keys in parallel).
+  - `overallBest = max(bestScores[...])` drives the home-screen "BEST SCORE"
+    box (now the best across all solo modes, not just one).
+  - Solo Mode picker: each of the three mode buttons (TIME ATTACK, ENDLESS,
+    RELAX) now shows a "Best: N" sub-label (new `modeBtnBest` style, gold)
+    when that mode has a recorded best > 0.
+
+Both files verified via a fresh `esbuild --loader:.js=jsx` syntax check
+(sandbox bash mount continues to serve stale/truncated copies of files
+edited via the `Edit` tool — worked around by reconstructing full file
+content and `Write`-ing fresh copies to a scratch path before checking).
+Pushed to `main`.
+
+**To playtest**: play each solo mode (Time Attack, Endless, Relax) and beat
+its high score — confirm the menu's Solo picker shows the correct "Best: N"
+per mode, the home-screen BEST SCORE reflects the max across all three, and
+the in-game overlay/score area shows BEST alongside SCORE without mixing up
+modes (e.g. a big Relax score shouldn't show as the Time Attack best).
+
+## What's next (in priority order)
+
+1. Manual playtest in browser (`npm run web`) — see the 2026-06-13
+   high-score/popup/tutorial checklist above (highest priority — covers
+   Tasks #19-23, today's changes), plus the earlier 2026-06-13 solo-mode
+   session checklist, and the 2026-06-13 animation/AI/combo checklist (wrap
+   slide, landing bounce, match pop, column highlight, AI difficulty, combo
+   multiplier — still not playtested). Also playtest the 2026-06-14
+   backgrounding/resync fix and the new illustrated tutorial above.
+2. Tune `MATCH_SIZE_BONUS` / `BALL_ADD_INTERVAL` / `BALL_ADD_COUNT` constants
+   once playtested — these were chosen as reasonable starting points, not
+   final balance.
+3. Low priority / not yet requested: update MenuScreen "How to Play" modal to
+   reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
+   also doesn't mention combos, AI difficulty, or the auto ball-add timer).
+4. Native build (iOS/Android via `expo build`/EAS) remains a future option —
+   keep changes framework-agnostic, no web-only forks of game logic.

@@ -984,14 +984,34 @@ export default function GameScreen({ navigation, route }) {
     return () => clearTimeout(msgTimer.current);
   }, [state.message]);
 
-  // ── Save high score ───────────────────────────────────────────────────────────
+  // ── High score (separate per solo mode) ───────────────────────────────────────
+  // Each solo mode (solo-time / solo-normal / relax) keeps its own
+  // AsyncStorage key, so a Relax high score doesn't overwrite/compete with
+  // a Time Attack or Endless one. `bestScore` mirrors the stored value for
+  // display in the game-over overlay.
+  const [bestScore, setBestScore] = useState(0);
+
+  // Load this mode's current best once on mount.
   useEffect(() => {
-    if (!state.gameOver) return;
-    const best = Math.max(...state.scores);
-    AsyncStorage.getItem('highScore').then(v => {
-      if (best > parseInt(v ?? '0', 10)) AsyncStorage.setItem('highScore', String(best));
+    if (!isSolo) return;
+    AsyncStorage.getItem(`highScore_${mode}`).then(v => setBestScore(v ? parseInt(v, 10) : 0));
+  }, [isSolo, mode]);
+
+  // Relax mode has no game-over state, so the high score is checked as the
+  // score updates rather than only once at the end of a run.
+  useEffect(() => {
+    if (!isSolo) return;
+    const score = state.scores[0];
+    if (score <= 0) return;
+    const key = `highScore_${mode}`;
+    AsyncStorage.getItem(key).then(v => {
+      const prevBest = v ? parseInt(v, 10) : 0;
+      if (score > prevBest) {
+        AsyncStorage.setItem(key, String(score));
+        setBestScore(score);
+      }
     });
-  }, [state.gameOver]);
+  }, [isSolo, mode, state.scores[0]]);
 
   // ── Keyboard controls (web) ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1264,6 +1284,11 @@ export default function GameScreen({ navigation, route }) {
                 <View style={styles.goScoreCol}>
                   <Text style={styles.goScoreLabel}>SCORE</Text>
                   <Text style={styles.goScoreVal}>{scores[0]}</Text>
+                </View>
+                <Text style={styles.goScoreSep}>—</Text>
+                <View style={styles.goScoreCol}>
+                  <Text style={styles.goScoreLabel}>BEST</Text>
+                  <Text style={styles.goScoreVal}>{bestScore}</Text>
                 </View>
               </View>
             </>
