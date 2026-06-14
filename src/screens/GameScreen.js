@@ -642,7 +642,18 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
           },
         ]}
       >
-        <BallView type={a.type} size={cellSize} />
+        {/* Main-row balls get a soft gold glow ring so the only
+            row that can be slid horizontally (and matched) reads
+            as visually "active" compared to the dimmed rows below. */}
+        {row === MAIN_ROW && (
+          <View
+            pointerEvents="none"
+            style={[styles.mainRowGlow, { width: cellSize * 1.3, height: cellSize * 1.3 }]}
+          />
+        )}
+        <View style={row === MAIN_ROW ? null : styles.outerRowBall}>
+          <BallView type={a.type} size={cellSize} />
+        </View>
       </Animated.View>
     );
   });
@@ -891,6 +902,29 @@ const BoardWithControls = React.memo(({
             pointerEvents="box-only"
           />
         )}
+
+        {/* Directional cues: a ▲▼ pair above/below every column hints
+            that columns slide vertically, while ◀▶ arrows flank the
+            glowing main row to show it's the one that slides
+            horizontally and produces matches. */}
+        <View pointerEvents="none" style={[styles.vArrowRow, { width: boardPx, top: -13 }]}>
+          {Array.from({ length: COLS }).map((_, i) => (
+            <Text key={`vt-${i}`} style={[styles.vArrowTxt, { width: cellSize }]}>▲</Text>
+          ))}
+        </View>
+        <View pointerEvents="none" style={[styles.vArrowRow, { width: boardPx, top: cellSize * board.length + 1 }]}>
+          {Array.from({ length: COLS }).map((_, i) => (
+            <Text key={`vb-${i}`} style={[styles.vArrowTxt, { width: cellSize }]}>▼</Text>
+          ))}
+        </View>
+        <Text
+          pointerEvents="none"
+          style={[styles.hArrowTxt, { left: -14, top: cellSize * MAIN_ROW + cellSize / 2 - 8 }]}
+        >◀</Text>
+        <Text
+          pointerEvents="none"
+          style={[styles.hArrowTxt, { left: boardPx + 2, top: cellSize * MAIN_ROW + cellSize / 2 - 8 }]}
+        >▶</Text>
       </View>
     </View>
   );
@@ -1539,6 +1573,44 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     borderRadius: 999,
     backgroundColor: '#FFFFFF',
+  },
+
+  // Soft gold halo behind every main-row ball — pairs with outerRowBall's
+  // dimming to make the slidable/matchable row visually "active".
+  mainRowGlow: {
+    position: 'absolute',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,204,0,0.18)',
+  },
+  // Balls outside the main row are dimmed — they can only slide vertically
+  // and never take part in a match.
+  outerRowBall: {
+    opacity: 0.35,
+  },
+
+  // Directional cue arrows around the board: ▲▼ above/below each column
+  // (vertical slide hint) and ◀▶ flanking the main row (horizontal slide /
+  // match hint).
+  vArrowRow: {
+    position: 'absolute',
+    left: 0,
+    flexDirection: 'row',
+  },
+  vArrowTxt: {
+    textAlign: 'center',
+    color: 'rgba(255,204,0,0.45)',
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  hArrowTxt: {
+    position: 'absolute',
+    width: 12,
+    height: 16,
+    textAlign: 'center',
+    color: '#FFCC00',
+    fontSize: 13,
+    fontWeight: 'bold',
+    opacity: 0.6,
   },
 
   // Main row — gold frame lines top + bottom
