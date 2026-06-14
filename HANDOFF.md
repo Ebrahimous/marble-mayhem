@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-14 (redesign first-run tutorial with illustrations)_
+_Last updated: 2026-06-14 (Relax mode)_
 
 ## Current state
 
@@ -477,20 +477,21 @@ fresh browser profile/incognito), start Time Attack or Endless, and confirm
 the new illustration grid renders correctly and "Don't show this again" +
 "Got it!" still work.
 
-## What's next (in priority order)
+## Session 2026-06-14 (tap-center removal, tutorial overlap fix, Relax mode)
 
-1. Manual playtest in browser (`npm run web`) — see the 2026-06-13
-   high-score/popup/tutorial checklist above (highest priority — covers
-   Tasks #19-23, today's changes), plus the earlier 2026-06-13 solo-mode
-   session checklist, and the 2026-06-13 animation/AI/combo checklist (wrap
-   slide, landing bounce, match pop, column highlight, AI difficulty, combo
-   multiplier — still not playtested). Also playtest the 2026-06-14
-   backgrounding/resync fix and the new illustrated tutorial above.
-2. Tune `MATCH_SIZE_BONUS` / `BALL_ADD_INTERVAL` / `BALL_ADD_COUNT` constants
-   once playtested — these were chosen as reasonable starting points, not
-   final balance.
-3. Low priority / not yet requested: update MenuScreen "How to Play" modal to
-   reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
-   also doesn't mention combos, AI difficulty, or the auto ball-add timer).
-4. Native build (iOS/Android via `expo build`/EAS) remains a future option —
-   keep changes framework-agnostic, no web-only forks of game logic.
+- **Simplify tutorial: drop "tap center for new balls" illustration**
+  (`71c6ff7`). Removed the third illustration card and its `tutTapIcon`
+  style; the tutorial grid now shows only "Drag columns" and "Swipe gold
+  row".
+- **Fix tutorial first illustration overlapping its caption** (`5d4ffc9`).
+  Increased `tutIllusBox` height from 56 to 100 in `GameScreen.js` so the
+  "Drag columns" diagram no longer overlaps its caption text.
+- **Add Relax mode** (`76432c7`) — new solo mode with no countdown and no
+  global ball-add timer; the board starts completely full.
+  - `src/engine.js`: new `createFullBoard()` (fills all 45 cells, then
+    settles via `resolveMatchesRelax`), `slideColumnUpWrap()` /
+    `slideColumnDownWrap()` (column slides wrap top↔bottom, mirroring the
+    main row's left/right wrap), and `resolveMatchesRelax()` — on a match,
+    cleared cells are refilled by shifting the column's above-MAIN_ROW balls
+    down one and spawning a fresh ball at row 0 (top of column), instead of
+    the usual gravity + random main-row to
