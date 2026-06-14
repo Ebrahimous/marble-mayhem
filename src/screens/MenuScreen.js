@@ -16,7 +16,7 @@ const SHOW_MULTIPLAYER_MODES = false;
 
 // Solo modes each keep their own high score (AsyncStorage key
 // `highScore_<mode>`), so a Relax run doesn't overwrite a Time Attack or
-// Endless best.
+// Challenge best.
 const SOLO_MODES = ['solo-time', 'solo-normal', 'relax'];
 
 export default function MenuScreen({ navigation }) {
@@ -146,7 +146,7 @@ export default function MenuScreen({ navigation }) {
           <Text style={styles.modeBtnIcon}>🎯</Text>
           <View style={styles.modeBtnTextCentered}>
             <Text style={[styles.modeBtnLabel, styles.modeBtnTextCenter]}>START</Text>
-            <Text style={[styles.modeBtnSub, styles.modeBtnTextCenter]}>Time Attack or Endless</Text>
+            <Text style={[styles.modeBtnSub, styles.modeBtnTextCenter]}>Time Attack or Challenge</Text>
           </View>
         </TouchableOpacity>
 
@@ -308,7 +308,7 @@ export default function MenuScreen({ navigation }) {
             >
               <Text style={styles.modeBtnIcon}>♾️</Text>
               <View>
-                <Text style={styles.modeBtnLabel}>ENDLESS</Text>
+                <Text style={styles.modeBtnLabel}>CHALLENGE</Text>
                 <Text style={styles.modeBtnSub}>No time limit · play until stuck</Text>
                 {bestScores['solo-normal'] > 0 && (
                   <Text style={styles.modeBtnBest}>Best: {bestScores['solo-normal'].toLocaleString()}</Text>

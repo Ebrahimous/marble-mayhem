@@ -157,7 +157,7 @@ function applySlide(state, playerIdx, slidedBoard) {
     combos[playerIdx] = 0;
   }
 
-  // Solo "Endless" mode ends once the board is completely full — stuck
+  // Solo "Challenge" mode ends once the board is completely full — stuck
   if (state.mode === 'solo-normal' && isBoardFull(boards[playerIdx])) {
     gameOver = true;
   }
@@ -995,7 +995,7 @@ export default function GameScreen({ navigation, route }) {
   // ── High score (separate per solo mode) ───────────────────────────────────────
   // Each solo mode (solo-time / solo-normal / relax) keeps its own
   // AsyncStorage key, so a Relax high score doesn't overwrite/compete with
-  // a Time Attack or Endless one. `bestScore` mirrors the stored value for
+  // a Time Attack or Challenge one. `bestScore` mirrors the stored value for
   // display in the game-over overlay.
   const [bestScore, setBestScore] = useState(0);
 
@@ -1214,7 +1214,7 @@ export default function GameScreen({ navigation, route }) {
           <View style={styles.soloRow}>
             <BoardWithControls
               board={boards[0]}
-              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'RELAX' : 'ENDLESS'}
+              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'RELAX' : 'CHALLENGE'}
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}
