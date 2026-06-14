@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-14 (per-mode high scores)_
+_Last updated: 2026-06-14 (Time Attack adopts Relax mechanics)_
 
 ## Current state
 
@@ -554,6 +554,32 @@ its high score — confirm the menu's Solo picker shows the correct "Best: N"
 per mode, the home-screen BEST SCORE reflects the max across all three, and
 the in-game overlay/score area shows BEST alongside SCORE without mixing up
 modes (e.g. a big Relax score shouldn't show as the Time Attack best).
+
+## Session 2026-06-14 (Time Attack adopts Relax board mechanics)
+
+Per user request, Time Attack (`solo-time`) now plays exactly like Relax
+mode mechanically, but keeps its existing 60-second countdown.
+
+- `src/screens/GameScreen.js`:
+  - New helper `usesRelaxMechanics(mode)` — true for `'relax'` and
+    `'solo-time'`. Replaces the five `mode === 'relax'` checks that gated
+    Relax-only mechanics:
+    - `createInitialState`: board starts via `createFullBoard()`.
+    - `applySlide`: matches resolved via `resolveMatchesRelax` (top-of-column
+      refill) instead of `settleBoard`.
+    - `COL_SLIDE`: uses `slideColumnUpWrap`/`slideColumnDownWrap` (wrap
+      top↔bottom) instead of the gravity-based slide fns.
+    - Auto ball-add timer effect: early-returns (no global timer).
+    - Ball-add progress bar: hidden.
+  - Time Attack's `timeLeft: 60`, `TICK` countdown, header TIME display, and
+    "⏰ TIME'S UP!" game-over title are unchanged and layered on top.
+- Verified via `esbuild --loader:.js=jsx` (fresh-copy workaround for the
+  stale sandbox bash mount). Pushed as `e61dc5c`.
+
+**To playtest**: start Time Attack — board should start completely full,
+column slides should wrap, matches should refill from the top of the
+column, and there should be no ball-add progress bar. The 60s countdown and
+"TIME'S UP!" game over should still work as before.
 
 ## What's next (in priority order)
 
