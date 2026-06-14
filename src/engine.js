@@ -109,9 +109,9 @@ export function createInitialBoard() {
 
 /**
  * Returns a board completely filled (every cell, all ROWS×COLS) with random
- * balls — the starting layout for "Relax" mode. Any accidental matches in
+ * balls — the starting layout for Zen Mode. Any accidental matches in
  * MAIN_ROW are pre-resolved via resolveMatchesRelax() so the game starts
- * clean (and stays completely full, per relax-mode refill rules).
+ * clean (and stays completely full, per Zen Mode refill rules).
  */
 export function createFullBoard() {
   const board = createBoard();
@@ -171,8 +171,8 @@ export function slideColumnDown(board, col) {
   return { board: next, moved: true };
 }
 
-// ── Column slides (wrap — Relax mode) ───────────────────────────────────────────
-// Relax mode's board is always completely full, so there's never an empty
+// ── Column slides (wrap — Zen Mode) ───────────────────────────────────────────
+// Zen Mode's board is always completely full, so there's never an empty
 // cell to shift into — instead, the ball at one end wraps around to the
 // other end, just like the main row's left/right wrap.
 
@@ -308,7 +308,7 @@ export function resolveMatches(board) {
 }
 
 /**
- * Relax-mode match resolution. The board is always completely full, so
+ * Zen Mode match resolution. The board is always completely full, so
  * there's no gravity step and no "ensure main row full" top-up — instead,
  * whenever a MAIN_ROW run of MATCH_MIN+ same-colour balls is cleared, every
  * column involved drops its above-MAIN_ROW balls down by one and a fresh

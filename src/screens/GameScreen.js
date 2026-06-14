@@ -50,7 +50,7 @@ import * as sfx from '../sounds';
 
 // ── Initial state ─────────────────────────────────────────────────────────────
 
-// Modes that share Relax mode's board mechanics: the board starts (and
+// Modes that share Zen Mode's board mechanics: the board starts (and
 // stays) completely full, column slides wrap top↔bottom, and matches are
 // refilled in place from the top of the column (resolveMatchesRelax)
 // instead of the usual gravity + main-row top-up / auto ball-add timer.
@@ -106,7 +106,7 @@ function applySlide(state, playerIdx, slidedBoard) {
   let lastMatch  = state.lastMatch;
 
   // Resolve matches, top up the main row, and keep settling until stable
-  // (catches chain matches formed by newly-spawned balls). Relax mode uses
+  // (catches chain matches formed by newly-spawned balls). Zen Mode uses
   // its own resolver — the board is always full, so cleared balls are
   // replaced by a fresh ball dropping in from the top of the column instead
   // of the usual gravity + main-row top-up.
@@ -188,7 +188,7 @@ function gameReducer(state, action) {
       if (state.paused) return state;
       const { player, col, dir } = action;
       if (state.mode === 'ai' && player === 1) return state;
-      // Relax/Time Attack: the board is always full, so a column slide wraps
+      // Zen Mode/Time Attack: the board is always full, so a column slide wraps
       // the end ball around to the other side instead of shifting into empty
       // space (same idea as the main row's left/right wrap).
       const slideFns = usesRelaxMechanics(state.mode)
@@ -968,7 +968,7 @@ export default function GameScreen({ navigation, route }) {
   // or pause state changes.
   const ballAddAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    // Relax/Time Attack have no global ball-add timer — balls only enter via
+    // Zen Mode/Time Attack have no global ball-add timer — balls only enter via
     // the top-of-column refill when a match clears.
     if (!isSolo || usesRelaxMechanics(mode) || state.gameOver || state.paused || showTutorial) return;
     ballAddAnim.setValue(0);
@@ -994,7 +994,7 @@ export default function GameScreen({ navigation, route }) {
 
   // ── High score (separate per solo mode) ───────────────────────────────────────
   // Each solo mode (solo-time / solo-normal / relax) keeps its own
-  // AsyncStorage key, so a Relax high score doesn't overwrite/compete with
+  // AsyncStorage key, so a Zen Mode high score doesn't overwrite/compete with
   // a Time Attack or Challenge one. `bestScore` mirrors the stored value for
   // display in the game-over overlay.
   const [bestScore, setBestScore] = useState(0);
@@ -1005,7 +1005,7 @@ export default function GameScreen({ navigation, route }) {
     AsyncStorage.getItem(`highScore_${mode}`).then(v => setBestScore(v ? parseInt(v, 10) : 0));
   }, [isSolo, mode]);
 
-  // Relax mode has no game-over state, so the high score is checked as the
+  // Zen Mode has no game-over state, so the high score is checked as the
   // score updates rather than only once at the end of a run.
   useEffect(() => {
     if (!isSolo) return;
@@ -1197,7 +1197,7 @@ export default function GameScreen({ navigation, route }) {
 
         {/* Ball-add timer indicator — thin line that fills up over
             BALL_ADD_INTERVAL ms, then resets when new balls drop in.
-            Not shown in Relax/Time Attack, which have no such timer. */}
+            Not shown in Zen Mode/Time Attack, which have no such timer. */}
         {isSolo && !usesRelaxMechanics(mode) && (
           <View style={styles.ballAddTrack}>
             <Animated.View
@@ -1214,7 +1214,7 @@ export default function GameScreen({ navigation, route }) {
           <View style={styles.soloRow}>
             <BoardWithControls
               board={boards[0]}
-              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'RELAX' : 'CHALLENGE'}
+              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'ZEN' : 'CHALLENGE'}
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}

@@ -15,7 +15,7 @@ import * as sfx from '../sounds';
 const SHOW_MULTIPLAYER_MODES = false;
 
 // Solo modes each keep their own high score (AsyncStorage key
-// `highScore_<mode>`), so a Relax run doesn't overwrite a Time Attack or
+// `highScore_<mode>`), so a Zen Mode run doesn't overwrite a Time Attack or
 // Challenge best.
 const SOLO_MODES = ['solo-time', 'solo-normal', 'relax'];
 
@@ -306,7 +306,7 @@ export default function MenuScreen({ navigation }) {
               onPress={() => { setSolo(false); play('solo-normal'); }}
               activeOpacity={0.8}
             >
-              <Text style={styles.modeBtnIcon}>♾️</Text>
+              <Text style={styles.modeBtnIcon}>⚔️</Text>
               <View>
                 <Text style={styles.modeBtnLabel}>CHALLENGE</Text>
                 <Text style={styles.modeBtnSub}>No time limit · play until stuck</Text>
@@ -321,9 +321,9 @@ export default function MenuScreen({ navigation }) {
               onPress={() => { setSolo(false); play('relax'); }}
               activeOpacity={0.8}
             >
-              <Text style={styles.modeBtnIcon}>🧘</Text>
+              <Text style={styles.modeBtnIcon}>♾️</Text>
               <View>
-                <Text style={styles.modeBtnLabel}>RELAX</Text>
+                <Text style={styles.modeBtnLabel}>ZEN MODE</Text>
                 <Text style={styles.modeBtnSub}>Full board · no timer · just match</Text>
                 {bestScores['relax'] > 0 && (
                   <Text style={styles.modeBtnBest}>Best: {bestScores['relax'].toLocaleString()}</Text>
