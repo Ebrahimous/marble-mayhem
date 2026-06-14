@@ -1332,15 +1332,6 @@ export default function GameScreen({ navigation, route }) {
                 </View>
                 <Text style={styles.tutCaption}>Match 3+ to clear</Text>
               </View>
-
-              {/* Tap centre ball for a fresh wave */}
-              <View style={styles.tutCell}>
-                <View style={styles.tutIllusBox}>
-                  <Text style={styles.tutTapIcon}>👆</Text>
-                  <BallView type="amber" size={TUT_BALL + 6} />
-                </View>
-                <Text style={styles.tutCaption}>Tap centre for new balls</Text>
-              </View>
             </View>
 
             <TouchableOpacity
@@ -1596,11 +1587,11 @@ const styles = StyleSheet.create({
   },
   tutTitle: { color: '#FFD700', fontSize: 22, fontWeight: 'bold', letterSpacing: 1, marginBottom: 16 },
 
-  // Illustration grid — 2x2 cards, each a tiny diagram + 2-4 word caption.
+  // Illustration grid — cards, each a tiny diagram + 2-4 word caption.
   tutGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     width: '100%',
   },
   tutCell: {
@@ -1636,7 +1627,6 @@ const styles = StyleSheet.create({
   },
   tutArrow: { color: '#FFD700', fontSize: 16, fontWeight: 'bold' },
   tutSparkle: { fontSize: 16, position: 'absolute', top: -2 },
-  tutTapIcon: { fontSize: 18, position: 'absolute', top: -4 },
   tutCaption: { color: '#CCC', fontSize: 13, textAlign: 'center' },
 
   tutCheckRow: {
