@@ -1600,7 +1600,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   tutIllusBox: {
-    height: 56,
+    height: 100,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
