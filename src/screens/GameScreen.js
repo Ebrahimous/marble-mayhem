@@ -1541,12 +1541,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  // Main row — gold frame lines top + bottom
+  // Main row — gold frame lines top + bottom, brightened background, and a
+  // soft outer glow so it visually reads as "the active row where matches
+  // happen" at a glance.
   mainRowBg: {
-    backgroundColor: '#160D00',
-    borderTopWidth: 2,
-    borderBottomWidth: 2,
-    borderColor: '#FFCC00',
+    backgroundColor: '#241400',
+    borderTopWidth: 3,
+    borderBottomWidth: 3,
+    borderColor: '#FFD700',
+    zIndex: 1,
+    ...Platform.select({
+      web: { boxShadow: '0 0 10px 1px rgba(255,215,0,0.35)' },
+      default: {
+        shadowColor: '#FFD700',
+        shadowOpacity: 0.5,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 0 },
+        elevation: 4,
+      },
+    }),
   },
 
   // Cells
