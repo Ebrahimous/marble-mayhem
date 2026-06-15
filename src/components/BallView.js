@@ -1,8 +1,10 @@
 /**
  * BallView.js — flat-style ball renderer
  *
- * Plain solid-colour circle, no border/outline/glow/highlight — matches
- * marbles_template_1.svg (flat single-fill circles).
+ * Flat single-fill circles (matches marbles_template_1.svg), with a thin
+ * dark outline so balls stay readable against any cell background —
+ * notably the yellow main-row background, where lighter ball colours
+ * (e.g. amber) would otherwise blend in.
  */
 import React from 'react';
 import { View } from 'react-native';
@@ -18,6 +20,7 @@ const BallView = React.memo(({ type, size }) => {
     <View style={{
       width: d, height: d, borderRadius: d / 2,
       backgroundColor: color, margin: 2,
+      borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.35)',
     }} />
   );
 });
