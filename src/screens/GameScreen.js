@@ -1545,9 +1545,9 @@ const styles = StyleSheet.create({
   // soft outer glow so it visually reads as "the active row where matches
   // happen" at a glance.
   mainRowBg: {
-    backgroundColor: 'transparent',
-    borderTopWidth: 3,
-    borderBottomWidth: 3,
+    backgroundColor: 'rgba(255,215,0,0.20)',
+    borderTopWidth: 1.5,
+    borderBottomWidth: 1.5,
     borderColor: '#FFD700',
     zIndex: 1,
     ...Platform.select({
