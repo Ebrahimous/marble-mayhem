@@ -276,6 +276,9 @@ function gameReducer(state, action) {
     case 'TOGGLE_PAUSE':
       return { ...state, paused: !state.paused };
 
+    case 'SET_PAUSED':
+      return { ...state, paused: action.value };
+
     case 'TICK': {
       if (state.paused || state.timeLeft == null) return state;
       const timeLeft = Math.max(0, state.timeLeft - 1);
@@ -946,6 +949,46 @@ export default function GameScreen({ navigation, route }) {
     setShowTutorial(false);
   }, [dontShowTutorial]);
 
+  // ── Leave-game confirmation (mobile/web back gesture) ─────────────────────────
+  // On web, the browser/phone "back" gesture would normally navigate away from
+  // the site entirely. We trap it with a dummy history entry: a back gesture
+  // re-arms that trap, pauses the game, and asks the player to confirm before
+  // returning to the Menu screen.
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const showLeaveConfirmRef = useRef(false);
+  showLeaveConfirmRef.current = showLeaveConfirm;
+  const pausedBeforeConfirmRef = useRef(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+
+    window.history.pushState({ marbleGame: true }, '');
+
+    const onPopState = () => {
+      // Re-arm the trap so the next back press is caught too.
+      window.history.pushState({ marbleGame: true }, '');
+      if (stateRef.current.gameOver) return;
+      pausedBeforeConfirmRef.current = stateRef.current.paused;
+      dispatch({ type: 'SET_PAUSED', value: true });
+      setShowLeaveConfirm(true);
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const handleCancelLeave = useCallback(() => {
+    sfx.playClick();
+    setShowLeaveConfirm(false);
+    dispatch({ type: 'SET_PAUSED', value: pausedBeforeConfirmRef.current });
+  }, []);
+
+  const handleConfirmLeave = useCallback(() => {
+    sfx.playClick();
+    setShowLeaveConfirm(false);
+    navigation.navigate('Menu');
+  }, [navigation]);
+
   // ── AI timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'ai' || state.gameOver || state.paused || showTutorial) return;
@@ -1027,7 +1070,7 @@ export default function GameScreen({ navigation, route }) {
 
     const onKey = (e) => {
       const s = stateRef.current;
-      if (s.gameOver || showTutorialRef.current) return;
+      if (s.gameOver || showTutorialRef.current || showLeaveConfirmRef.current) return;
 
       if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
         dispatch({ type: 'TOGGLE_PAUSE' });
@@ -1263,7 +1306,7 @@ export default function GameScreen({ navigation, route }) {
       </ScrollView>
 
       {/* Pause overlay */}
-      {paused && !gameOver && (
+      {paused && !gameOver && !showLeaveConfirm && (
         <View style={styles.overlay}>
           <Text style={styles.goTitle}>⏸  PAUSED</Text>
 
@@ -1275,6 +1318,21 @@ export default function GameScreen({ navigation, route }) {
             onPress={() => { sfx.playClick(); navigation.navigate('Menu'); }}
           >
             <Text style={[styles.goBtnTxt, styles.goBtnTxtSecondary]}>Main Menu</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Leave-game confirmation (triggered by phone/browser back gesture) */}
+      {showLeaveConfirm && (
+        <View style={styles.overlay}>
+          <Text style={styles.goTitle}>Leave Game?</Text>
+          <Text style={styles.leaveMsg}>Your progress in this match will be lost.</Text>
+
+          <TouchableOpacity style={styles.goBtn} onPress={handleConfirmLeave}>
+            <Text style={styles.goBtnTxt}>Leave to Menu</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.goBtn, styles.goBtnSecondary]} onPress={handleCancelLeave}>
+            <Text style={[styles.goBtnTxt, styles.goBtnTxtSecondary]}>Cancel</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1611,6 +1669,7 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   goTitle:      { color: '#FFD700', fontSize: 32, fontWeight: 'bold', letterSpacing: 2, marginBottom: 20 },
+  leaveMsg:     { color: '#999', fontSize: 14, textAlign: 'center', marginBottom: 28, marginTop: -8 },
   goScores:     { flexDirection: 'row', alignItems: 'center', marginBottom: 36 },
   goScoreCol:   { alignItems: 'center', minWidth: 80 },
   goScoreLabel: { color: '#666', fontSize: 12, letterSpacing: 1 },
