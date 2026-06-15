@@ -1545,7 +1545,7 @@ const styles = StyleSheet.create({
   // soft outer glow so it visually reads as "the active row where matches
   // happen" at a glance.
   mainRowBg: {
-    backgroundColor: '#FFD700',
+    backgroundColor: 'transparent',
     borderTopWidth: 3,
     borderBottomWidth: 3,
     borderColor: '#FFD700',
