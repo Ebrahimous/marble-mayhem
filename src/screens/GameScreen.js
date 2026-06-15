@@ -359,9 +359,11 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
   // re-render with the same lastMatch (e.g. a resize) doesn't duplicate it.
   const lastPopupIdRef = useRef(null);
 
-  // Full board width — used to slide wrapped main-row balls in from the
-  // opposite edge instead of sliding them across the whole board.
-  const boardWidth = cellSize * COLS;
+  // Full board width/height — used to slide wrapped main-row balls in from
+  // the opposite edge instead of sliding them across the whole board, and to
+  // render the wrap-around preview ghost while dragging (see below).
+  const boardWidth  = cellSize * COLS;
+  const boardHeight = cellSize * ROWS;
 
   // Populate the very first set of ball positions synchronously during the
   // initial render (not inside useEffect). useEffect runs *after* the first
@@ -629,10 +631,31 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
     // (horizontal drag) by the live finger-tracking Animated.Value. Match
     // resolution is untouched — it only runs once the real board state
     // changes on release.
+    let wrapTransform = null;
     if (dragInfo && dragInfo.axis === 'col' && col === dragInfo.index) {
       transform.push({ translateY: dragInfo.offset });
+      // Edge balls get a wrap-around preview copy so they don't appear to
+      // poke outside the board while dragging — the copy slides in from the
+      // opposite edge as the original slides out, mirroring the wrap that
+      // happens on release.
+      if (row === ROWS - 1) {
+        // Dragging down: this ball would exit the bottom — preview copy
+        // enters from the top.
+        wrapTransform = [{ scaleY: a.scaleY }, { translateY: Animated.add(dragInfo.offset, -boardHeight) }];
+      } else if (row === 0) {
+        // Dragging up: this ball would exit the top — preview copy enters
+        // from the bottom.
+        wrapTransform = [{ scaleY: a.scaleY }, { translateY: Animated.add(dragInfo.offset, boardHeight) }];
+      }
     } else if (dragInfo && dragInfo.axis === 'row' && row === MAIN_ROW) {
       transform.push({ translateX: dragInfo.offset });
+      if (col === COLS - 1) {
+        // Dragging right: preview copy enters from the left.
+        wrapTransform = [{ scaleY: a.scaleY }, { translateX: Animated.add(dragInfo.offset, -boardWidth) }];
+      } else if (col === 0) {
+        // Dragging left: preview copy enters from the right.
+        wrapTransform = [{ scaleY: a.scaleY }, { translateX: Animated.add(dragInfo.offset, boardWidth) }];
+      }
     }
     elements.push(
       <Animated.View
@@ -648,6 +671,22 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
         <BallView type={a.type} size={cellSize} />
       </Animated.View>
     );
+    if (wrapTransform) {
+      elements.push(
+        <Animated.View
+          key={`${ball.id}-wrap`}
+          style={[
+            styles.ballSlot,
+            {
+              width: cellSize, height: cellSize, top: a.top, left: a.left,
+              opacity: a.opacity, transform: wrapTransform,
+            },
+          ]}
+        >
+          <BallView type={a.type} size={cellSize} />
+        </Animated.View>
+      );
+    }
   });
 
   ghosts.forEach((gh) => {
@@ -1583,6 +1622,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 1,
     left: 1,
+    overflow: 'hidden',
   },
   ballSlot: {
     position: 'absolute',
