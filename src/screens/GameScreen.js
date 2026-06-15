@@ -350,7 +350,7 @@ function landingBounce(scaleY) {
  * Returns an array of <Animated.View> elements (one per ball + ghost) ready
  * to render inside an absolutely-positioned overlay the size of the board.
  */
-function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
+function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap) {
   const animsRef = useRef(new Map()); // id -> { top, left, scaleY, opacity, type, row, col }
   const prevRef  = useRef(null);
   const [ghosts, setGhosts] = useState([]);
@@ -638,11 +638,11 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
       // poke outside the board while dragging — the copy slides in from the
       // opposite edge as the original slides out, mirroring the wrap that
       // happens on release.
-      if (row === ROWS - 1) {
+      if (colWrap && row === ROWS - 1) {
         // Dragging down: this ball would exit the bottom — preview copy
         // enters from the top.
         wrapTransform = [{ scaleY: a.scaleY }, { translateY: Animated.add(dragInfo.offset, -boardHeight) }];
-      } else if (row === 0) {
+      } else if (colWrap && row === 0) {
         // Dragging up: this ball would exit the top — preview copy enters
         // from the bottom.
         wrapTransform = [{ scaleY: a.scaleY }, { translateY: Animated.add(dragInfo.offset, boardHeight) }];
@@ -740,7 +740,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
 const TAP_THRESHOLD = 10;
 
 const BoardWithControls = React.memo(({
-  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch,
+  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch, colWrap,
 }) => {
   const swipeThreshold = cellSize * 0.45;
 
@@ -869,7 +869,7 @@ const BoardWithControls = React.memo(({
     })
   ).current;
 
-  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch);
+  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap);
 
   return (
     <View style={styles.boardCtrl}>
@@ -1306,6 +1306,7 @@ export default function GameScreen({ navigation, route }) {
               boardPx={boardPx}
               tapToMove={tapToMove}
               lastMatch={lastMatch}
+              colWrap={usesRelaxMechanics(mode)}
             />
           </View>
         ) : (
@@ -1322,6 +1323,7 @@ export default function GameScreen({ navigation, route }) {
               boardPx={boardPx}
               tapToMove={tapToMove}
               lastMatch={lastMatch}
+              colWrap={false}
             />
 
             <View style={styles.divider} />
@@ -1338,6 +1340,7 @@ export default function GameScreen({ navigation, route }) {
               boardPx={boardPx}
               tapToMove={tapToMove}
               lastMatch={lastMatch}
+              colWrap={false}
             />
           </View>
         )}
