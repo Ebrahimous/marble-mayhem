@@ -20,7 +20,7 @@ const BallView = React.memo(({ type, size }) => {
     <View style={{
       width: d, height: d, borderRadius: d / 2,
       backgroundColor: color, margin: 2,
-      borderWidth: 3, borderColor: 'rgba(0,0,0,0.55)',
+      borderWidth: 3, borderColor: '#0A0A14',
     }} />
   );
 });
