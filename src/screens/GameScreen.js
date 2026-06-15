@@ -642,7 +642,9 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch) {
           },
         ]}
       >
-        <BallView type={a.type} size={cellSize} />
+        <View style={row === MAIN_ROW ? null : styles.outerRowBall}>
+          <BallView type={a.type} size={cellSize} />
+        </View>
       </Animated.View>
     );
   });
@@ -874,6 +876,27 @@ const BoardWithControls = React.memo(({
             ]}
           />
         )}
+
+        {/* Frosted-glass panels over the non-main rows show those rows are
+            "inactive" (vertical-slide only). These sit below the ball
+            layer, so the blur affects the grid lines behind the glass —
+            not the balls, which render sharp on top of it. */}
+        <View
+          pointerEvents="none"
+          style={[styles.frostOverlay, styles.frostOverlayTop, { width: boardPx - 2, height: cellSize * MAIN_ROW }]}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.frostOverlay,
+            styles.frostOverlayBottom,
+            {
+              top: 1 + cellSize * (MAIN_ROW + 1),
+              width: boardPx - 2,
+              height: cellSize * (board.length - MAIN_ROW - 1),
+            },
+          ]}
+        />
 
         {/* Balls render in their own absolutely-positioned layer so they can
             animate (falling/gravity, fade in/out) independently of the grid. */}
@@ -1539,6 +1562,37 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     borderRadius: 999,
     backgroundColor: '#FFFFFF',
+  },
+
+  // Balls outside the main row are softened — they can only slide
+  // vertically and never take part in a match. The frosted-glass panel
+  // (frostOverlay, below) sits behind them for the "inactive" look, so the
+  // balls themselves only need a light dim.
+  outerRowBall: {
+    opacity: 0.65,
+  },
+
+  // Frosted-glass panel over the non-main rows, layered between the board
+  // grid and the ball layer: a soft translucent tint (with a light blur of
+  // the grid lines behind it on web) gives those "inactive" rows a frosted
+  // pane look without blurring the balls, which render on top of it.
+  frostOverlay: {
+    position: 'absolute',
+    left: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    ...Platform.select({
+      web: { backdropFilter: 'blur(3px)' },
+      default: {},
+    }),
+  },
+  frostOverlayTop: {
+    top: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.10)',
+  },
+  frostOverlayBottom: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.10)',
   },
 
   // Main row — gold frame lines top + bottom
