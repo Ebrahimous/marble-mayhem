@@ -29,6 +29,8 @@ import {
   createInitialBoard,
   createFullBoard,
   cloneBoard,
+  makeBall,
+  applyGravity,
   slideColumnUp,
   slideColumnDown,
   slideColumnUpWrap,
@@ -55,12 +57,12 @@ import * as sfx from '../sounds';
 // refilled in place from the top of the column (resolveMatchesRelax)
 // instead of the usual gravity + main-row top-up / auto ball-add timer.
 function usesRelaxMechanics(mode) {
-  return mode === 'relax' || mode === 'solo-time';
+  return mode === 'relax' || mode === 'solo-time' || mode === 'mayhem';
 }
 
 function createInitialState(mode, ballCount = 5) {
   setBallTypes(ballCount === 6 ? BALL_TYPES_6 : BALL_TYPES_5);
-  const isSolo = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax';
+  const isSolo = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax' || mode === 'mayhem';
   return {
     mode,
     ballCount,
@@ -76,7 +78,13 @@ function createInitialState(mode, ballCount = 5) {
     ballAddTick: 0,   // bumped each time the auto ball-add timer fires (solo)
     selectedCol: 0,   // keyboard-selected column on P1's board
     paused:      false,
-    timeLeft:    mode === 'solo-time' ? 60 : null,
+    timeLeft:    (mode === 'solo-time' || mode === 'mayhem') ? 60 : null,
+    // Mayhem-mode power-up state
+    ...(mode === 'mayhem' && {
+      powerUps: {},          // { [ballId]: { type: 'freeze'|'bomb'|'tbomb', timer?: number } }
+      freezeLeft: 0,         // seconds remaining on active freeze power-up
+      mayhemOverReason: null, // 'bomb' | null
+    }),
   };
 }
 
@@ -162,6 +170,66 @@ function applySlide(state, playerIdx, slidedBoard) {
     gameOver = true;
   }
 
+  // ── Mayhem power-up effects ───────────────────────────────────────────────────
+  // After settling, find which power-up balls were matched (cleared) and apply
+  // their effects: freeze the timer, bomb-blast 3×3, or defuse a timed bomb.
+  let powerUps = state.powerUps ?? {};
+  let freezeLeft = state.freezeLeft ?? 0;
+  const mayhemOverReason = state.mayhemOverReason ?? null;
+
+  if (state.mode === 'mayhem' && Object.keys(powerUps).length > 0) {
+    // Record each PU ball's position in the post-slide (pre-settle) board
+    const puPos = {};
+    slidedBoard.forEach((rowArr, ri) => rowArr.forEach((ball, ci) => {
+      if (ball && powerUps[ball.id]) puPos[String(ball.id)] = { row: ri, col: ci };
+    }));
+
+    // Which PU balls survived settling?
+    const stillAlive = new Set();
+    settled.forEach(rowArr => rowArr.forEach(ball => {
+      if (ball && powerUps[ball.id]) stillAlive.add(String(ball.id));
+    }));
+
+    const newPowerUps = { ...powerUps };
+    let blastBoard = boards[playerIdx];
+
+    for (const [idStr, pu] of Object.entries(powerUps)) {
+      if (stillAlive.has(idStr) || !puPos[idStr]) continue; // still on board
+
+      delete newPowerUps[idStr]; // consume this power-up
+
+      if (pu.type === 'freeze') {
+        freezeLeft = 5; // pause the countdown for 5 s
+
+      } else if (pu.type === 'bomb') {
+        // Clear a 3×3 area, let gravity settle, refill voids, resolve matches
+        const { row: br, col: bc } = puPos[idStr];
+        let blasted = blastBoard.map(r => [...r]);
+        for (let r = Math.max(0, br - 1); r <= Math.min(ROWS - 1, br + 1); r++) {
+          for (let c = Math.max(0, bc - 1); c <= Math.min(COLS - 1, bc + 1); c++) {
+            blasted[r][c] = null;
+          }
+        }
+        blasted = applyGravity(blasted); // let remaining balls settle into the voids
+        // Refill every null cell with a fresh ball so the board stays packed
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (!blasted[r][c]) {
+              const b = makeBall(); b.spawnSide = 'top'; blasted[r][c] = b;
+            }
+          }
+        }
+        const { board: blastSettled, rawScore: blastRaw } = resolveMatchesRelax(blasted);
+        blastBoard = blastSettled;
+        scores[playerIdx] += blastRaw; // any chain matches from the blast score too
+      }
+      // tbomb: matched/defused before timer expired — already removed from newPowerUps
+    }
+
+    boards[playerIdx] = blastBoard;
+    powerUps = newPowerUps;
+  }
+
   return {
     ...state,
     boards,
@@ -172,6 +240,7 @@ function applySlide(state, playerIdx, slidedBoard) {
     message,
     lastMatch,
     aiTick: playerIdx === 1 ? state.aiTick + 1 : state.aiTick,
+    ...(state.mode === 'mayhem' && { powerUps, freezeLeft, mayhemOverReason }),
   };
 }
 
@@ -281,10 +350,62 @@ function gameReducer(state, action) {
 
     case 'TICK': {
       if (state.paused || state.timeLeft == null) return state;
+
+      if (state.mode === 'mayhem') {
+        let freezeLeft = state.freezeLeft ?? 0;
+        let timeLeft = state.timeLeft;
+        let gameOver = false;
+        let mayhemOverReason = null;
+
+        if (freezeLeft > 0) {
+          freezeLeft = Math.max(0, freezeLeft - 1); // frozen — don't tick the clock
+        } else {
+          timeLeft = Math.max(0, timeLeft - 1);
+          if (timeLeft === 0) gameOver = true;
+        }
+
+        // Decrement timed-bomb timers; any bomb reaching 0 ends the game
+        let powerUps = { ...state.powerUps };
+        for (const [id, pu] of Object.entries(powerUps)) {
+          if (pu.type !== 'tbomb') continue;
+          const newTimer = pu.timer - 1;
+          if (newTimer <= 0) {
+            gameOver = true;
+            mayhemOverReason = 'bomb';
+            powerUps = { ...powerUps, [id]: { ...pu, timer: 0 } };
+          } else {
+            powerUps = { ...powerUps, [id]: { ...pu, timer: newTimer } };
+          }
+        }
+
+        return { ...state, timeLeft, freezeLeft, powerUps, gameOver, mayhemOverReason };
+      }
+
       const timeLeft = Math.max(0, state.timeLeft - 1);
       return timeLeft === 0
         ? { ...state, timeLeft, gameOver: true }
         : { ...state, timeLeft };
+    }
+
+    case 'SPAWN_POWERUP': {
+      if (state.mode !== 'mayhem' || state.paused || state.gameOver) return state;
+      const board = state.boards[0];
+      const existing = new Set(Object.keys(state.powerUps));
+      const candidates = [];
+      board.forEach(row => row.forEach(ball => {
+        if (ball && !existing.has(String(ball.id))) candidates.push(ball.id);
+      }));
+      if (candidates.length === 0) return state;
+      const id = candidates[Math.floor(Math.random() * candidates.length)];
+      const roll = Math.random();
+      const type = roll < 0.35 ? 'freeze' : roll < 0.70 ? 'bomb' : 'tbomb';
+      return {
+        ...state,
+        powerUps: {
+          ...state.powerUps,
+          [id]: { type, timer: type === 'tbomb' ? 8 : null },
+        },
+      };
     }
 
     case 'CLEAR_MESSAGE':
@@ -350,7 +471,7 @@ function landingBounce(scaleY) {
  * Returns an array of <Animated.View> elements (one per ball + ghost) ready
  * to render inside an absolutely-positioned overlay the size of the board.
  */
-function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap) {
+function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps) {
   const animsRef = useRef(new Map()); // id -> { top, left, scaleY, opacity, type, row, col }
   const prevRef  = useRef(null);
   const [ghosts, setGhosts] = useState([]);
@@ -657,6 +778,18 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap) {
         wrapTransform = [{ scaleY: a.scaleY }, { translateX: Animated.add(dragInfo.offset, boardWidth) }];
       }
     }
+    const pu = powerUps && powerUps[ball.id];
+    const puNode = pu ? (
+      <View style={styles.puOverlay}>
+        <Text style={[
+          styles.puSymbol,
+          { fontSize: pu.type === 'tbomb' ? cellSize * 0.35 : cellSize * 0.42 },
+          pu.type === 'tbomb' && (pu.timer ?? 8) <= 3 && styles.puBombUrgent,
+        ]}>
+          {pu.type === 'freeze' ? '❄' : pu.type === 'bomb' ? '💥' : String(pu.timer ?? 8)}
+        </Text>
+      </View>
+    ) : null;
     elements.push(
       <Animated.View
         key={ball.id}
@@ -669,6 +802,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap) {
         ]}
       >
         <BallView type={a.type} size={cellSize} />
+        {puNode}
       </Animated.View>
     );
     if (wrapTransform) {
@@ -684,6 +818,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap) {
           ]}
         >
           <BallView type={a.type} size={cellSize} />
+          {puNode}
         </Animated.View>
       );
     }
@@ -740,7 +875,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap) {
 const TAP_THRESHOLD = 10;
 
 const BoardWithControls = React.memo(({
-  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch, colWrap,
+  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch, colWrap, powerUps,
 }) => {
   const swipeThreshold = cellSize * 0.45;
 
@@ -869,7 +1004,7 @@ const BoardWithControls = React.memo(({
     })
   ).current;
 
-  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap);
+  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps);
 
   return (
     <View style={styles.boardCtrl}>
@@ -945,7 +1080,7 @@ export default function GameScreen({ navigation, route }) {
   const ballCount   = route?.params?.ballCount ?? 5;
   const aiDifficulty = route?.params?.aiDifficulty ?? DEFAULT_AI_DIFFICULTY;
   const insets = useSafeAreaInsets();
-  const isSolo  = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax';
+  const isSolo  = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax' || mode === 'mayhem';
 
   // Recompute board sizing whenever the viewport changes (resize/orientation).
   // Solo modes render a single board, so it can use nearly the full width.
@@ -1038,10 +1173,25 @@ export default function GameScreen({ navigation, route }) {
 
   // ── Solo Time Attack countdown ────────────────────────────────────────────────
   useEffect(() => {
-    if (mode !== 'solo-time' || state.gameOver || state.paused || showTutorial) return;
+    if ((mode !== 'solo-time' && mode !== 'mayhem') || state.gameOver || state.paused || showTutorial) return;
     const t = setInterval(() => dispatch({ type: 'TICK' }), 1000);
     return () => clearInterval(t);
   }, [mode, state.gameOver, state.paused, showTutorial]);
+
+  // ── Mayhem power-up spawning ─────────────────────────────────────────────────
+  // One random power-up every 10 s (periodic), plus an extra one when the
+  // player lands a chain, combo, or match-5.
+  useEffect(() => {
+    if (mode !== 'mayhem' || state.gameOver || state.paused || showTutorial) return;
+    const t = setInterval(() => dispatch({ type: 'SPAWN_POWERUP' }), 10000);
+    return () => clearInterval(t);
+  }, [mode, state.gameOver, state.paused, showTutorial]);
+
+  useEffect(() => {
+    if (mode !== 'mayhem' || !state.lastMatch) return;
+    const { chains, combo, maxSize } = state.lastMatch;
+    if (chains > 1 || combo > 1 || maxSize >= 5) dispatch({ type: 'SPAWN_POWERUP' });
+  }, [mode, state.lastMatch]);
 
   // ── Automatic ball-add timer (solo modes) ─────────────────────────────────────
   // Every BALL_ADD_INTERVAL ms, BALL_ADD_COUNT balls drop into random columns.
@@ -1207,6 +1357,9 @@ export default function GameScreen({ navigation, route }) {
   }, [state.gameOver]);
 
   const { boards, scores, gameOver, winner, lastMatch, selectedCol, paused, timeLeft } = state;
+  const powerUps = state.powerUps ?? {};
+  const freezeLeft = state.freezeLeft ?? 0;
+  const mayhemOverReason = state.mayhemOverReason ?? null;
   const p2Label = mode === 'ai' ? 'CPU' : 'P2';
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -1234,10 +1387,16 @@ export default function GameScreen({ navigation, route }) {
                 <Text style={styles.scoreVal}>{scores[0]}</Text>
               </View>
 
-              {mode === 'solo-time' && (
+              {(mode === 'solo-time' || mode === 'mayhem') && (
                 <View style={styles.scoreBlock}>
-                  <Text style={styles.scoreLabel}>TIME</Text>
-                  <Text style={[styles.scoreVal, timeLeft <= 10 && styles.timeWarning]}>
+                  <Text style={[styles.scoreLabel, freezeLeft > 0 && styles.freezeLabel]}>
+                    {freezeLeft > 0 ? '❄ FROZEN' : 'TIME'}
+                  </Text>
+                  <Text style={[
+                    styles.scoreVal,
+                    timeLeft <= 10 && styles.timeWarning,
+                    freezeLeft > 0 && styles.freezeVal,
+                  ]}>
                     {formatTime(timeLeft)}
                   </Text>
                 </View>
@@ -1296,7 +1455,7 @@ export default function GameScreen({ navigation, route }) {
           <View style={styles.soloRow}>
             <BoardWithControls
               board={boards[0]}
-              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'ZEN' : 'CHALLENGE'}
+              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'ZEN' : mode === 'mayhem' ? 'MAYHEM' : 'CHALLENGE'}
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}
@@ -1307,6 +1466,7 @@ export default function GameScreen({ navigation, route }) {
               tapToMove={tapToMove}
               lastMatch={lastMatch}
               colWrap={usesRelaxMechanics(mode)}
+              powerUps={powerUps}
             />
           </View>
         ) : (
@@ -1385,7 +1545,9 @@ export default function GameScreen({ navigation, route }) {
           {isSolo ? (
             <>
               <Text style={styles.goTitle}>
-                {mode === 'solo-time' ? "⏰  TIME'S UP!" : '🔒  STUCK!'}
+                {(mode === 'solo-time' || mode === 'mayhem')
+                ? (mayhemOverReason === 'bomb' ? '💣  BOMB EXPLODED!' : "⏰  TIME'S UP!")
+                : '🔒  STUCK!'}
               </Text>
 
               <View style={styles.goScores}>
@@ -1713,6 +1875,27 @@ const styles = StyleSheet.create({
   },
   goTitle:      { color: '#FFD700', fontSize: 32, fontWeight: 'bold', letterSpacing: 2, marginBottom: 20 },
   leaveMsg:     { color: '#999', fontSize: 14, textAlign: 'center', marginBottom: 28, marginTop: -8 },
+
+  // Power-up overlay on balls (Mayhem mode)
+  puOverlay: {
+    position: 'absolute',
+    top: 0, bottom: 0, left: 0, right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+  },
+  puSymbol: {
+    fontWeight: 'bold',
+    color: '#FFF',
+    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
+  },
+  puBombUrgent: { color: '#FF4444' },
+
+  // Frozen-timer display in header
+  freezeLabel: { color: '#7DF9FF' },
+  freezeVal:   { color: '#7DF9FF' },
   goScores:     { flexDirection: 'row', alignItems: 'center', marginBottom: 36 },
   goScoreCol:   { alignItems: 'center', minWidth: 80 },
   goScoreLabel: { color: '#666', fontSize: 12, letterSpacing: 1 },

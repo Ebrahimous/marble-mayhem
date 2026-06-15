@@ -17,7 +17,7 @@ const SHOW_MULTIPLAYER_MODES = false;
 // Solo modes each keep their own high score (AsyncStorage key
 // `highScore_<mode>`), so a Zen Mode run doesn't overwrite a Time Attack or
 // Challenge best.
-const SOLO_MODES = ['solo-time', 'solo-normal', 'relax'];
+const SOLO_MODES = ['solo-time', 'solo-normal', 'relax', 'mayhem'];
 
 export default function MenuScreen({ navigation }) {
   const insets    = useSafeAreaInsets();
@@ -302,6 +302,21 @@ export default function MenuScreen({ navigation }) {
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={[styles.modeBtn, styles.modeBtnAlt, styles.modeBtnMayhem]}
+              onPress={() => { setSolo(false); play('mayhem'); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modeBtnIcon}>💥</Text>
+              <View>
+                <Text style={styles.modeBtnLabel}>MAYHEM</Text>
+                <Text style={styles.modeBtnSub}>1 minute · power-ups · timed bombs</Text>
+                {bestScores['mayhem'] > 0 && (
+                  <Text style={styles.modeBtnBest}>Best: {bestScores['mayhem'].toLocaleString()}</Text>
+                )}
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.modeBtn, styles.modeBtnAlt]}
               onPress={() => { setSolo(false); play('solo-normal'); }}
               activeOpacity={0.8}
@@ -500,6 +515,7 @@ const styles = StyleSheet.create({
   modeBtnLabel: { color: '#FFF', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   modeBtnSub:   { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 },
   modeBtnBest:  { color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 2 },
+  modeBtnMayhem: { borderColor: '#FF6B35', borderWidth: 2 },
   modeBtnCentered:    { justifyContent: 'center' },
   modeBtnTextCentered: { alignItems: 'center' },
   modeBtnTextCenter:  { textAlign: 'center' },
