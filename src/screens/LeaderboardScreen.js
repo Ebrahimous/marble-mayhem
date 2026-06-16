@@ -287,4 +287,5 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
-  confirmNoTxt: { color: '#666', fontSize: 15 }
+  confirmNoTxt: { color: '#666', fontSize: 15 },
+});
