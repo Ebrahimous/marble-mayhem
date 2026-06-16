@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import MenuScreen from './src/screens/MenuScreen';
 import GameScreen from './src/screens/GameScreen';
+import LeaderboardScreen from './src/screens/LeaderboardScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -75,6 +76,7 @@ export default function App() {
         >
           <Stack.Screen name="Menu" component={MenuScreen} />
           <Stack.Screen name="Game" component={GameScreen} />
+          <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

@@ -182,10 +182,19 @@ export default function MenuScreen({ navigation }) {
         )}
       </View>
 
-      {/* How to play */}
-      <TouchableOpacity onPress={() => { sfx.playClick(); setHelp(true); }} style={styles.helpLink}>
-        <Text style={styles.helpLinkTxt}>How to Play</Text>
-      </TouchableOpacity>
+      {/* Leaderboard + How to play */}
+      <View style={styles.bottomLinks}>
+        <TouchableOpacity
+          onPress={() => { sfx.playClick(); navigation.navigate('Leaderboard'); }}
+          style={styles.lbLink}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.lbLinkTxt}>🏆 Leaderboard</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => { sfx.playClick(); setHelp(true); }} style={styles.helpLink}>
+          <Text style={styles.helpLinkTxt}>How to Play</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Help modal */}
       <Modal visible={showHelp} animationType="slide" transparent>
@@ -520,6 +529,9 @@ const styles = StyleSheet.create({
   modeBtnTextCentered: { alignItems: 'center' },
   modeBtnTextCenter:  { textAlign: 'center' },
 
+  bottomLinks: { alignItems: 'center', gap: 2 },
+  lbLink:      { paddingVertical: 8, paddingHorizontal: 16 },
+  lbLinkTxt:   { color: '#FFD700', fontSize: 15, fontWeight: 'bold', letterSpacing: 0.5 },
   helpLink:    { paddingVertical: 8 },
   helpLinkTxt: { color: '#333', fontSize: 14 },
 

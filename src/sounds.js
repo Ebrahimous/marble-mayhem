@@ -191,3 +191,49 @@ export function playRoundEnd() {
 export function playClick() {
   ping(1200, { dur: 0.07, gain: 0.09, harmonics: [1, 2] });
 }
+
+/** Icy crystalline shimmer — played when a freeze power-up is matched. */
+export function playFreeze() {
+  // A descending cascade of cold, glassy tones with high-shimmer harmonics.
+  [2400, 1900, 1500, 1100].forEach((f, i) =>
+    ping(f, { dur: 0.40, gain: 0.12, delay: i * 0.055, harmonics: [1, 2.5, 4.2] }));
+}
+
+/** Low explosion thud + debris scatter — played when a bomb power-up fires. */
+export function playBomb() {
+  ensureLoaded();
+  if (muted) return;
+  const ac = getCtx();
+  if (!ac) return;
+  const t0 = ac.currentTime;
+
+  // Deep impact thud (noise burst + low sine)
+  const buf = ac.createBuffer(1, ac.sampleRate * 0.4, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 2);
+  const noise = ac.createBufferSource();
+  noise.buffer = buf;
+  const noiseGain = ac.createGain();
+  noiseGain.gain.setValueAtTime(0.45, t0);
+  noiseGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.4);
+  noise.connect(noiseGain);
+  noiseGain.connect(ac.destination);
+  noise.start(t0);
+
+  // Low boom sine
+  const boom = ac.createOscillator();
+  boom.type = 'sine';
+  boom.frequency.setValueAtTime(90, t0);
+  boom.frequency.exponentialRampToValueAtTime(30, t0 + 0.35);
+  const boomGain = ac.createGain();
+  boomGain.gain.setValueAtTime(0.35, t0);
+  boomGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+  boom.connect(boomGain);
+  boomGain.connect(ac.destination);
+  boom.start(t0);
+  boom.stop(t0 + 0.4);
+
+  // Debris pings (scattered high-frequency crackles)
+  [900, 1300, 700, 1700, 500].forEach((f, i) =>
+    ping(f, { dur: 0.18, gain: 0.07, delay: 0.04 + i * 0.035, harmonics: [1, 2] }));
+}

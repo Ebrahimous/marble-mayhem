@@ -11,7 +11,7 @@ import React, {
 } from 'react';
 import {
   View, Text, TouchableOpacity, Animated, Easing,
-  StyleSheet, PanResponder, ScrollView, useWindowDimensions, Platform, Modal,
+  StyleSheet, PanResponder, ScrollView, useWindowDimensions, Platform, Modal, TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -63,11 +63,16 @@ function usesRelaxMechanics(mode) {
 function createInitialState(mode, ballCount = 5) {
   setBallTypes(ballCount === 6 ? BALL_TYPES_6 : BALL_TYPES_5);
   const isSolo = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax' || mode === 'mayhem';
-  return {
+
+  // Build the board(s) first so we can read the actual ball IDs for Mayhem seeding.
+  const boards = usesRelaxMechanics(mode)
+    ? [createFullBoard()]
+    : isSolo ? [createInitialBoard()] : [createInitialBoard(), createInitialBoard()];
+
+  const base = {
     mode,
     ballCount,
-    boards:      usesRelaxMechanics(mode) ? [createFullBoard()]
-                : isSolo ? [createInitialBoard()] : [createInitialBoard(), createInitialBoard()],
+    boards,
     scores:      isSolo ? [0] : [0, 0],
     combos:      isSolo ? [0] : [0, 0],
     gameOver:    false,
@@ -79,13 +84,26 @@ function createInitialState(mode, ballCount = 5) {
     selectedCol: 0,   // keyboard-selected column on P1's board
     paused:      false,
     timeLeft:    (mode === 'solo-time' || mode === 'mayhem') ? 60 : null,
-    // Mayhem-mode power-up state
-    ...(mode === 'mayhem' && {
-      powerUps: {},          // { [ballId]: { type: 'freeze'|'bomb'|'tbomb', timer?: number } }
-      freezeLeft: 0,         // seconds remaining on active freeze power-up
-      mayhemOverReason: null, // 'bomb' | null
-    }),
   };
+
+  if (mode === 'mayhem') {
+    // Seed the board with 0–3 random power-ups (freeze or bomb only — no
+    // tbomb at start, so the player isn't immediately under threat).
+    const allIds = [];
+    boards[0].forEach(row => row.forEach(ball => { if (ball) allIds.push(ball.id); }));
+    const count = Math.floor(Math.random() * 4); // 0, 1, 2, or 3
+    const picked = allIds.sort(() => Math.random() - 0.5).slice(0, count);
+    const startPowerUps = {};
+    picked.forEach(id => {
+      startPowerUps[id] = { type: Math.random() < 0.5 ? 'freeze' : 'bomb', timer: null };
+    });
+    base.powerUps = startPowerUps;
+    base.freezeLeft = 0;
+    base.mayhemOverReason = null;
+    base.lastBombBlast = null; // { id, row, col } — set when a bomb PU fires
+  }
+
+  return base;
 }
 
 // Monotonically increasing id for each match-clear "event" (a slide/spawn
@@ -176,6 +194,7 @@ function applySlide(state, playerIdx, slidedBoard) {
   let powerUps = state.powerUps ?? {};
   let freezeLeft = state.freezeLeft ?? 0;
   const mayhemOverReason = state.mayhemOverReason ?? null;
+  let lastBombBlast = state.lastBombBlast ?? null;
 
   if (state.mode === 'mayhem' && Object.keys(powerUps).length > 0) {
     // Record each PU ball's position in the post-slide (pre-settle) board
@@ -204,6 +223,8 @@ function applySlide(state, playerIdx, slidedBoard) {
       } else if (pu.type === 'bomb') {
         // Clear a 3×3 area, let gravity settle, refill voids, resolve matches
         const { row: br, col: bc } = puPos[idStr];
+        // Record blast position for the visual shockwave ring
+        lastBombBlast = { id: (lastBombBlast?.id ?? 0) + 1, row: br, col: bc };
         let blasted = blastBoard.map(r => [...r]);
         for (let r = Math.max(0, br - 1); r <= Math.min(ROWS - 1, br + 1); r++) {
           for (let c = Math.max(0, bc - 1); c <= Math.min(COLS - 1, bc + 1); c++) {
@@ -240,7 +261,7 @@ function applySlide(state, playerIdx, slidedBoard) {
     message,
     lastMatch,
     aiTick: playerIdx === 1 ? state.aiTick + 1 : state.aiTick,
-    ...(state.mode === 'mayhem' && { powerUps, freezeLeft, mayhemOverReason }),
+    ...(state.mode === 'mayhem' && { powerUps, freezeLeft, mayhemOverReason, lastBombBlast }),
   };
 }
 
@@ -397,8 +418,13 @@ function gameReducer(state, action) {
       }));
       if (candidates.length === 0) return state;
       const id = candidates[Math.floor(Math.random() * candidates.length)];
+      // At most one timed bomb on the board at a time — prevent a second tbomb
+      // appearing before the player has had a chance to defuse the first.
+      const hasTbomb = Object.values(state.powerUps).some(p => p.type === 'tbomb');
       const roll = Math.random();
-      const type = roll < 0.35 ? 'freeze' : roll < 0.70 ? 'bomb' : 'tbomb';
+      const type = hasTbomb
+        ? (roll < 0.5 ? 'freeze' : 'bomb')
+        : (roll < 0.35 ? 'freeze' : roll < 0.70 ? 'bomb' : 'tbomb');
       return {
         ...state,
         powerUps: {
@@ -471,14 +497,20 @@ function landingBounce(scaleY) {
  * Returns an array of <Animated.View> elements (one per ball + ghost) ready
  * to render inside an absolutely-positioned overlay the size of the board.
  */
-function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps) {
+function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast) {
   const animsRef = useRef(new Map()); // id -> { top, left, scaleY, opacity, type, row, col }
   const prevRef  = useRef(null);
   const [ghosts, setGhosts] = useState([]);
   const [popups, setPopups] = useState([]);
+  const [blasts, setBlasts] = useState([]); // bomb shockwave rings
   // Tracks the id of the last lastMatch we already spawned a popup for, so a
   // re-render with the same lastMatch (e.g. a resize) doesn't duplicate it.
-  const lastPopupIdRef = useRef(null);
+  const lastPopupIdRef  = useRef(null);
+  const lastBlastIdRef  = useRef(null); // likewise for bomb blast rings
+  // Per-tbomb looping scale-pulse animations: Map<ballId, { scale, lastTier, loop }>
+  // Created synchronously during render (so the Animated.Value is wired into the
+  // View's transform on the first paint); loop is started in the useEffect below.
+  const tbombPulseRef = useRef(new Map());
 
   // Full board width/height — used to slide wrapped main-row balls in from
   // the opposite edge instead of sliding them across the whole board, and to
@@ -734,6 +766,31 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
       }
     }
 
+    // ── Bomb blast ring ────────────────────────────────────────────────────
+    // Triggered by a new `lastBombBlast` arriving (guarded by ID to prevent
+    // re-spawning on re-renders with the same event).
+    if (lastBombBlast && lastBlastIdRef.current !== lastBombBlast.id) {
+      lastBlastIdRef.current = lastBombBlast.id;
+      const blast = {
+        id: lastBombBlast.id,
+        cx: (lastBombBlast.col + 0.5) * cellSize,
+        cy: (lastBombBlast.row + 0.5) * cellSize,
+        ring:    new Animated.Value(0.1),
+        opacity: new Animated.Value(0.9),
+        flash:   new Animated.Value(1.0),
+        flashOp: new Animated.Value(0.75),
+      };
+      setBlasts(b => [...b, blast]);
+      const removeBlast = () => setBlasts(b => b.filter(x => x.id !== blast.id));
+      Animated.parallel([
+        Animated.timing(blast.ring,    { toValue: 1,   duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
+        Animated.timing(blast.opacity, { toValue: 0,   duration: 380, useNativeDriver: false }),
+        Animated.timing(blast.flash,   { toValue: 2.5, duration: 200, easing: Easing.out(Easing.quad),  useNativeDriver: false }),
+        Animated.timing(blast.flashOp, { toValue: 0,   duration: 250, useNativeDriver: false }),
+      ]).start(removeBlast);
+      setTimeout(removeBlast, 500);
+    }
+
     if (moves.length) Animated.parallel(moves).start();
     // Landing bounces start once the fall/slide tween finishes.
     if (bounces.length) {
@@ -741,12 +798,69 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
     }
   }, [board, cellSize, lastMatch]);
 
+  // Start / update / stop tbomb looping scale-pulse animations.
+  // Runs after every board or powerUps change; bails early when the speed
+  // tier hasn't changed (timer ≤ 6 / ≤ 4 / ≤ 2 are the four thresholds),
+  // so it only restarts the loop at those four transition points.
+  useEffect(() => {
+    const boardIds = new Set();
+    forEachCell(board, ball => boardIds.add(ball.id));
+
+    forEachCell(board, ball => {
+      const pu = powerUps && powerUps[ball.id];
+      const entry = tbombPulseRef.current.get(ball.id);
+      if (!pu || pu.type !== 'tbomb' || !entry) return;
+
+      const t    = pu.timer ?? 8;
+      const tier = t <= 2 ? 4 : t <= 4 ? 3 : t <= 6 ? 2 : 1;
+      if (entry.lastTier === tier) return; // no speed change, keep existing loop
+
+      entry.loop?.stop();
+      const halfDur = t <= 2 ? 90 : t <= 4 ? 170 : t <= 6 ? 280 : 500;
+      const peak    = t <= 2 ? 1.30 : t <= 4 ? 1.20 : 1.12;
+      entry.scale.setValue(1);
+      const loop = Animated.loop(Animated.sequence([
+        Animated.timing(entry.scale, { toValue: peak, duration: halfDur, useNativeDriver: false }),
+        Animated.timing(entry.scale, { toValue: 1.0,  duration: halfDur, useNativeDriver: false }),
+      ]));
+      loop.start();
+      entry.lastTier = tier;
+      entry.loop = loop;
+    });
+
+    // Stop and remove pulse anims for balls that have left the board
+    tbombPulseRef.current.forEach((entry, id) => {
+      if (!boardIds.has(id)) {
+        entry.loop?.stop();
+        tbombPulseRef.current.delete(id);
+      }
+    });
+  }, [board, powerUps]);
+
   const elements = [];
 
   forEachCell(board, (ball, row, col) => {
     const a = animsRef.current.get(ball.id);
     if (!a) return;
+
+    // ── Tbomb pulse scale ─────────────────────────────────────────────────
+    // Create the Animated.Value synchronously so it's wired into the View's
+    // transform on this render; the useEffect above starts the actual loop
+    // after the paint.
+    const pu = powerUps && powerUps[ball.id];
+    let tbombPulse = null;
+    if (pu && pu.type === 'tbomb') {
+      let entry = tbombPulseRef.current.get(ball.id);
+      if (!entry) {
+        entry = { scale: new Animated.Value(1), lastTier: -1, loop: null };
+        tbombPulseRef.current.set(ball.id, entry);
+      }
+      tbombPulse = entry.scale;
+    }
+
     const transform = [{ scaleY: a.scaleY }];
+    if (tbombPulse) transform.push({ scale: tbombPulse });
+
     // Live touch-drag preview: while the player is dragging, offset every
     // ball in the dragged column (vertical drag) or the whole main row
     // (horizontal drag) by the live finger-tracking Animated.Value. Match
@@ -778,18 +892,45 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
         wrapTransform = [{ scaleY: a.scaleY }, { translateX: Animated.add(dragInfo.offset, boardWidth) }];
       }
     }
-    const pu = powerUps && powerUps[ball.id];
+
+    // ── Power-up overlay node ──────────────────────────────────────────────
+    // Timed bomb: 💣 icon with countdown number overlaid, colour-coded by
+    // urgency. Other types: single icon symbol.
     const puNode = pu ? (
-      <View style={styles.puOverlay}>
-        <Text style={[
-          styles.puSymbol,
-          { fontSize: pu.type === 'tbomb' ? cellSize * 0.35 : cellSize * 0.42 },
-          pu.type === 'tbomb' && (pu.timer ?? 8) <= 3 && styles.puBombUrgent,
-        ]}>
-          {pu.type === 'freeze' ? '❄' : pu.type === 'bomb' ? '💥' : String(pu.timer ?? 8)}
-        </Text>
+      <View style={styles.puOverlay} pointerEvents="none">
+        {pu.type === 'tbomb' ? (
+          <View style={styles.tbombBadge}>
+            <Text style={{ fontSize: cellSize * 0.52 }}>💣</Text>
+            <Text style={[
+              styles.tbombCount,
+              { fontSize: cellSize * 0.30 },
+              (pu.timer ?? 8) <= 6 && (pu.timer ?? 8) > 3 && styles.tbombCountWarn,
+              (pu.timer ?? 8) <= 3 && styles.tbombCountUrgent,
+            ]}>
+              {pu.timer ?? 8}
+            </Text>
+          </View>
+        ) : (
+          <Text style={[styles.puSymbol, { fontSize: cellSize * 0.42 }]}>
+            {pu.type === 'freeze' ? '❄' : '💥'}
+          </Text>
+        )}
       </View>
     ) : null;
+
+    // ── Power-up glow ring ─────────────────────────────────────────────────
+    // Balls carrying a power-up get a coloured outline so they read as
+    // special at a glance, not just from the icon overlay.
+    const puGlow = pu ? (
+      <View style={[
+        styles.puGlowRing,
+        pu.type === 'freeze' && styles.puGlowFreeze,
+        pu.type === 'bomb'   && styles.puGlowBomb,
+        pu.type === 'tbomb'  && styles.puGlowTbomb,
+        { borderRadius: cellSize * 0.5, width: cellSize - 2, height: cellSize - 2 },
+      ]} pointerEvents="none" />
+    ) : null;
+
     elements.push(
       <Animated.View
         key={ball.id}
@@ -802,6 +943,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
         ]}
       >
         <BallView type={a.type} size={cellSize} />
+        {puGlow}
         {puNode}
       </Animated.View>
     );
@@ -818,6 +960,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
           ]}
         >
           <BallView type={a.type} size={cellSize} />
+          {puGlow}
           {puNode}
         </Animated.View>
       );
@@ -839,6 +982,48 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
         <Animated.View style={[styles.ghostGlow, { opacity: gh.glow }]} />
         <BallView type={gh.type} size={cellSize} />
       </Animated.View>
+    );
+  });
+
+  // Bomb blast rings — expanding shockwave circles over the 3×3 blast area
+  blasts.forEach((b) => {
+    const ringSize = cellSize * 4.5;
+    elements.push(
+      <Animated.View
+        key={`blast-ring-${b.id}`}
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          width: ringSize,
+          height: ringSize,
+          top: b.cy - ringSize / 2,
+          left: b.cx - ringSize / 2,
+          borderRadius: ringSize / 2,
+          borderWidth: 5,
+          borderColor: '#FF9900',
+          opacity: b.opacity,
+          transform: [{ scale: b.ring }],
+        }}
+      />
+    );
+    // Inner flash — solid orange disc that scales and fades
+    const flashSize = cellSize * 2;
+    elements.push(
+      <Animated.View
+        key={`blast-flash-${b.id}`}
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          width: flashSize,
+          height: flashSize,
+          top: b.cy - flashSize / 2,
+          left: b.cx - flashSize / 2,
+          borderRadius: flashSize / 2,
+          backgroundColor: '#FFCC44',
+          opacity: b.flashOp,
+          transform: [{ scale: b.flash }],
+        }}
+      />
     );
   });
 
@@ -875,8 +1060,17 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
 const TAP_THRESHOLD = 10;
 
 const BoardWithControls = React.memo(({
-  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch, colWrap, powerUps,
+  board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch, colWrap, powerUps, freezeActive, lastBombBlast,
 }) => {
+  // Animate the freeze overlay in/out as freezeActive changes
+  const freezeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(freezeAnim, {
+      toValue: freezeActive ? 1 : 0,
+      duration: freezeActive ? 300 : 800,
+      useNativeDriver: false,
+    }).start();
+  }, [freezeActive]);
   const swipeThreshold = cellSize * 0.45;
 
   // Always-fresh callbacks/values without stale closure
@@ -1004,7 +1198,7 @@ const BoardWithControls = React.memo(({
     })
   ).current;
 
-  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps);
+  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast);
 
   return (
     <View style={styles.boardCtrl}>
@@ -1068,6 +1262,18 @@ const BoardWithControls = React.memo(({
             pointerEvents="box-only"
           />
         )}
+
+        {/* Freeze overlay — icy tint across the entire board while freeze is active */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.freezeOverlay,
+            { opacity: freezeAnim },
+          ]}
+        >
+          <Text style={styles.freezeOverlayText}>❄ FROZEN ❄</Text>
+        </Animated.View>
       </View>
     </View>
   );
@@ -1193,6 +1399,43 @@ export default function GameScreen({ navigation, route }) {
     if (chains > 1 || combo > 1 || maxSize >= 5) dispatch({ type: 'SPAWN_POWERUP' });
   }, [mode, state.lastMatch]);
 
+  // ── Mayhem danger glow — pulsing red screen border when tbomb is active ───────
+  // Pulse speed escalates in four tiers as the timer counts down:
+  //   tier 1 (8–7 s): slow   600 ms half-cycle
+  //   tier 2 (6–5 s): medium 350 ms
+  //   tier 3 (4–3 s): fast   200 ms
+  //   tier 4 (2–1 s): frantic 120 ms
+  // The effect only restarts the loop when the tier changes, not every second.
+  const dangerGlowAnim    = useRef(new Animated.Value(0)).current;
+  const dangerGlowLoopRef = useRef(null);
+  const dangerTierRef     = useRef(0);
+
+  useEffect(() => {
+    if (mode !== 'mayhem') return;
+    const puMap = state.powerUps ?? {};
+    const tbombs = Object.values(puMap).filter(p => p.type === 'tbomb');
+    const minTimer = (tbombs.length > 0 && !state.gameOver)
+      ? Math.min(...tbombs.map(p => p.timer ?? 8)) : Infinity;
+
+    const newTier = minTimer <= 2 ? 4 : minTimer <= 4 ? 3 : minTimer <= 6 ? 2 : minTimer <= 8 ? 1 : 0;
+    if (newTier === dangerTierRef.current) return; // no tier change
+    dangerTierRef.current = newTier;
+
+    if (dangerGlowLoopRef.current) { dangerGlowLoopRef.current.stop(); dangerGlowLoopRef.current = null; }
+
+    if (newTier === 0) {
+      Animated.timing(dangerGlowAnim, { toValue: 0, duration: 300, useNativeDriver: false }).start();
+      return;
+    }
+    const halfDur = [0, 600, 350, 200, 120][newTier];
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(dangerGlowAnim, { toValue: 0.9,  duration: halfDur, useNativeDriver: false }),
+      Animated.timing(dangerGlowAnim, { toValue: 0.15, duration: halfDur, useNativeDriver: false }),
+    ]));
+    loop.start();
+    dangerGlowLoopRef.current = loop;
+  }, [mode, state.powerUps, state.gameOver]);
+
   // ── Automatic ball-add timer (solo modes) ─────────────────────────────────────
   // Every BALL_ADD_INTERVAL ms, BALL_ADD_COUNT balls drop into random columns.
   // ballAddAnim animates 0→1 over that interval to drive the thin progress
@@ -1230,6 +1473,20 @@ export default function GameScreen({ navigation, route }) {
   // a Time Attack or Challenge one. `bestScore` mirrors the stored value for
   // display in the game-over overlay.
   const [bestScore, setBestScore] = useState(0);
+
+  // Leaderboard name-entry state (shown in game-over overlay when score qualifies)
+  const [showNameEntry, setShowNameEntry] = useState(false);
+  const [lbName, setLbName] = useState('');
+  const [lbSaved, setLbSaved] = useState(false);
+
+  // Reset name-entry state when a new game starts
+  useEffect(() => {
+    if (!state.gameOver) {
+      setShowNameEntry(false);
+      setLbSaved(false);
+      setLbName('');
+    }
+  }, [state.gameOver]);
 
   // Load this mode's current best once on mount.
   useEffect(() => {
@@ -1332,6 +1589,21 @@ export default function GameScreen({ navigation, route }) {
     dispatch({ type: 'SPAWN_WAVE', player: 1 });
   }, []);
 
+  // ── Leaderboard save ─────────────────────────────────────────────────────────
+  const saveToLeaderboard = useCallback(async () => {
+    const name = lbName.trim() || 'Player';
+    const score = stateRef.current.scores[0];
+    const key = `leaderboard_${mode}`;
+    const v = await AsyncStorage.getItem(key);
+    const entries = v ? JSON.parse(v) : [];
+    entries.push({ name, score, date: new Date().toISOString().slice(0, 10) });
+    entries.sort((a, b) => b.score - a.score);
+    await AsyncStorage.setItem(key, JSON.stringify(entries.slice(0, 10)));
+    setShowNameEntry(false);
+    setLbSaved(true);
+    sfx.playClick();
+  }, [lbName, mode]);
+
   // ── Sound effects: matches, chains, penalties, game over ─────────────────────
   useEffect(() => {
     if (!state.lastMatch) return;
@@ -1342,6 +1614,19 @@ export default function GameScreen({ navigation, route }) {
     }
     if (!isSolo) sfx.playPenalty();
   }, [state.lastMatch]);
+
+  // Check whether the final score qualifies for the per-mode leaderboard
+  useEffect(() => {
+    if (!state.gameOver || !isSolo) return;
+    const score = state.scores[0];
+    if (score <= 0) return;
+    AsyncStorage.getItem(`leaderboard_${mode}`).then(v => {
+      const entries = v ? JSON.parse(v) : [];
+      if (entries.length < 10 || score > entries[entries.length - 1].score) {
+        setShowNameEntry(true);
+      }
+    });
+  }, [state.gameOver]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!state.gameOver) return;
@@ -1357,9 +1642,27 @@ export default function GameScreen({ navigation, route }) {
   }, [state.gameOver]);
 
   const { boards, scores, gameOver, winner, lastMatch, selectedCol, paused, timeLeft } = state;
-  const powerUps = state.powerUps ?? {};
-  const freezeLeft = state.freezeLeft ?? 0;
+  const powerUps      = state.powerUps ?? {};
+  const freezeLeft    = state.freezeLeft ?? 0;
   const mayhemOverReason = state.mayhemOverReason ?? null;
+  const lastBombBlast = state.lastBombBlast ?? null;
+
+  // ── Power-up sound effects ─────────────────────────────────────────────────────
+  // Freeze: play when freezeLeft transitions from 0 to positive (i.e. freeze activated)
+  const prevFreezeLeftRef = useRef(0);
+  useEffect(() => {
+    if (freezeLeft > 0 && prevFreezeLeftRef.current === 0) sfx.playFreeze();
+    prevFreezeLeftRef.current = freezeLeft;
+  }, [freezeLeft]);
+
+  // Bomb: play each time a new bomb blast fires (guarded by blast id)
+  const prevBombBlastIdRef = useRef(null);
+  useEffect(() => {
+    if (lastBombBlast && lastBombBlast.id !== prevBombBlastIdRef.current) {
+      prevBombBlastIdRef.current = lastBombBlast.id;
+      sfx.playBomb();
+    }
+  }, [lastBombBlast]);
   const p2Label = mode === 'ai' ? 'CPU' : 'P2';
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -1467,6 +1770,8 @@ export default function GameScreen({ navigation, route }) {
               lastMatch={lastMatch}
               colWrap={usesRelaxMechanics(mode)}
               powerUps={powerUps}
+              freezeActive={freezeLeft > 0}
+              lastBombBlast={lastBombBlast}
             />
           </View>
         ) : (
@@ -1506,6 +1811,14 @@ export default function GameScreen({ navigation, route }) {
         )}
 
       </ScrollView>
+
+      {/* Mayhem danger border — full-screen pulsing red ring when a timed bomb is active */}
+      {mode === 'mayhem' && (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, styles.dangerBorder, { opacity: dangerGlowAnim }]}
+        />
+      )}
 
       {/* Pause overlay */}
       {paused && !gameOver && !showLeaveConfirm && (
@@ -1582,6 +1895,33 @@ export default function GameScreen({ navigation, route }) {
                 </View>
               </View>
             </>
+          )}
+
+          {/* Leaderboard name-entry (solo modes, qualifying score) */}
+          {isSolo && showNameEntry && !lbSaved && (
+            <View style={styles.nameEntryBox}>
+              <Text style={styles.nameEntryTitle}>🏆 Enter your name</Text>
+              <TextInput
+                style={styles.nameEntryInput}
+                value={lbName}
+                onChangeText={setLbName}
+                placeholder="Your name"
+                placeholderTextColor="#444"
+                maxLength={20}
+                returnKeyType="done"
+                onSubmitEditing={saveToLeaderboard}
+                autoFocus
+              />
+              <TouchableOpacity style={styles.nameSaveBtn} onPress={saveToLeaderboard}>
+                <Text style={styles.nameSaveBtnTxt}>Save to Leaderboard</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { sfx.playClick(); setShowNameEntry(false); }}>
+                <Text style={styles.nameSkipTxt}>Skip</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {isSolo && lbSaved && (
+            <Text style={styles.lbSavedTxt}>✓ Score saved to leaderboard!</Text>
           )}
 
           <TouchableOpacity style={styles.goBtn} onPress={() => { sfx.playClick(); dispatch({ type: 'RESET' }); }}>
@@ -1891,7 +2231,80 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4,
   },
-  puBombUrgent: { color: '#FF4444' },
+
+  // Timed-bomb badge: 💣 emoji with countdown number overlaid
+  tbombBadge: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  tbombCount: {
+    position: 'absolute',
+    color: '#FFFFFF',
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4,
+  },
+  tbombCountWarn:   { color: '#FFAA00' },  // 4-6 s remaining
+  tbombCountUrgent: { color: '#FF2222' },  // 1-3 s remaining
+
+  // Coloured glow ring around power-up balls (visible at a glance)
+  puGlowRing: {
+    position: 'absolute',
+    borderWidth: 2.5,
+    borderColor: 'transparent',
+  },
+  puGlowFreeze: {
+    borderColor: '#7DF9FF',
+    ...Platform.select({
+      web: { boxShadow: '0 0 8px 2px rgba(125,249,255,0.7)' },
+      default: { shadowColor: '#7DF9FF', shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
+    }),
+  },
+  puGlowBomb: {
+    borderColor: '#FF9900',
+    ...Platform.select({
+      web: { boxShadow: '0 0 8px 2px rgba(255,153,0,0.7)' },
+      default: { shadowColor: '#FF9900', shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
+    }),
+  },
+  puGlowTbomb: {
+    borderColor: '#FF2222',
+    ...Platform.select({
+      web: { boxShadow: '0 0 10px 3px rgba(255,34,34,0.8)' },
+      default: { shadowColor: '#FF2222', shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+    }),
+  },
+
+  // Full-screen pulsing red border rendered when a timed bomb is active (Mayhem)
+  dangerBorder: {
+    borderWidth: 6,
+    borderColor: '#FF2020',
+    zIndex: 50,
+  },
+
+  // Icy overlay rendered over the board while a freeze power-up is active
+  freezeOverlay: {
+    borderRadius: 6,
+    backgroundColor: 'rgba(125,249,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+    ...Platform.select({
+      web: { boxShadow: 'inset 0 0 20px 4px rgba(125,249,255,0.35)' },
+      default: {},
+    }),
+  },
+  freezeOverlayText: {
+    color: '#7DF9FF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    letterSpacing: 3,
+    textShadowColor: 'rgba(0,0,0,0.7)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
+  },
 
   // Frozen-timer display in header
   freezeLabel: { color: '#7DF9FF' },
@@ -1913,6 +2326,65 @@ const styles = StyleSheet.create({
   goBtnSecondary:    { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#333' },
   goBtnTxt:          { color: '#FFF', fontSize: 17, fontWeight: 'bold', letterSpacing: 1 },
   goBtnTxtSecondary: { color: '#666' },
+
+  // Leaderboard name-entry (shown in game-over overlay)
+  nameEntryBox: {
+    backgroundColor: '#0D0D22',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FFD700',
+    padding: 18,
+    marginBottom: 20,
+    width: '80%',
+    maxWidth: 320,
+    alignItems: 'center',
+  },
+  nameEntryTitle: {
+    color: '#FFD700',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  nameEntryInput: {
+    width: '100%',
+    backgroundColor: '#13132B',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2A2A55',
+    color: '#FFF',
+    fontSize: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  nameSaveBtn: {
+    backgroundColor: '#1E90FF',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    marginBottom: 10,
+    width: '100%',
+    alignItems: 'center',
+  },
+  nameSaveBtnTxt: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  nameSkipTxt: {
+    color: '#333',
+    fontSize: 13,
+    paddingVertical: 4,
+  },
+  lbSavedTxt: {
+    color: '#2ED573',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 16,
+    letterSpacing: 0.5,
+  },
 
   // First-run tutorial modal
   tutBackdrop: {

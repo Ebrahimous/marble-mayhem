@@ -1,6 +1,6 @@
 # Handoff — Marble Mayhem
 
-_Last updated: 2026-06-14 (Time Attack adopts Relax mechanics)_
+_Last updated: 2026-06-16 (leaderboard)_
 
 ## Current state
 
@@ -581,20 +581,195 @@ column slides should wrap, matches should refill from the top of the
 column, and there should be no ball-add progress bar. The 60s countdown and
 "TIME'S UP!" game over should still work as before.
 
-## What's next (in priority order)
+## Session 2026-06-16 (back button trap, drag wrap visual, Mayhem mode)
 
-1. Manual playtest in browser (`npm run web`) — see the 2026-06-13
-   high-score/popup/tutorial checklist above (highest priority — covers
-   Tasks #19-23, today's changes), plus the earlier 2026-06-13 solo-mode
-   session checklist, and the 2026-06-13 animation/AI/combo checklist (wrap
-   slide, landing bounce, match pop, column highlight, AI difficulty, combo
-   multiplier — still not playtested). Also playtest the 2026-06-14
-   backgrounding/resync fix and the new illustrated tutorial above.
-2. Tune `MATCH_SIZE_BONUS` / `BALL_ADD_INTERVAL` / `BALL_ADD_COUNT` constants
-   once playtested — these were chosen as reasonable starting points, not
-   final balance.
-3. Low priority / not yet requested: update MenuScreen "How to Play" modal to
-   reflect Prototype 2.0 mechanics (push-from-below copy is outdated, and now
-   also doesn't mention combos, AI difficulty, or the auto ball-add timer).
-4. Native build (iOS/Android via `expo build`/EAS) remains a future option —
-   keep changes framework-agnostic, no web-only forks of game logic.
+### Back button trap (commit `2bd554d`)
+On mobile web, browser back gesture now shows "Leave Game?" confirmation popup
+instead of navigating away. Game pauses during the popup. Cancel resumes; Confirm
+navigates to Menu.
+- `GameScreen.js`: `window.history.pushState` on mount creates a dummy entry;
+  `popstate` listener re-pushes state (trapping each back) and triggers
+  `setShowLeaveConfirm(true)` + `SET_PAUSED`. New `showLeaveConfirm` state,
+  `pausedBeforeConfirmRef`, `handleCancelLeave`, `handleConfirmLeave`.
+
+### Drag wrap visual (commit `45d4d5f`)
+During column or row drag, edge balls now ghost-appear from the opposite side
+instead of poking outside the play area.
+- `useBallAnimations` renders a second ghost element for edge balls using
+  `Animated.add(offset, +/-boardHeight/boardWidth)`. `ballLayer` got
+  `overflow: 'hidden'` to clip out-of-bounds content.
+- `colWrap` boolean prop threaded GameScreen -> BoardWithControls ->
+  useBallAnimations; wrap ghost disabled in Challenge mode (commit `43079fe`).
+
+### Mayhem mode (commit `55bc490`)
+New solo mode: same as Time Attack (60 s, relax board mechanics) plus power-ups.
+
+**State fields added (mayhem only):**
+```
+powerUps: {},        // { [ballId]: { type: 'freeze'|'bomb'|'tbomb', timer?: number } }
+freezeLeft: 0,       // seconds remaining on freeze effect
+mayhemOverReason: null, // 'bomb' | null
+```
+
+**Power-up types:**
+- freeze (snowflake) -- pauses countdown 5 s; header shows "FROZEN" in cyan
+- bomb (explosion) -- clears 3x3 area, applyGravity, refill with makeBall(), resolveMatchesRelax
+- tbomb (timed bomb, negative) -- counts down from 8 s on the ball; hit 0 = game over
+
+**Spawn triggers:**
+- SPAWN_POWERUP action dispatched every 10 s via setInterval
+- Also dispatched when lastMatch.chains > 1, combo > 1, or maxSize >= 5
+
+**Key code changes:**
+- `usesRelaxMechanics(mode)` now includes 'mayhem'
+- `createInitialState`: isSolo + timeLeft: 60 for mayhem; spawns mayhem state fields
+- `applySlide`: post-settle detects consumed PU balls and applies freeze/bomb effects
+- `TICK` reducer: decrements freezeLeft before ticking clock; decrements tbomb timers
+- `SPAWN_POWERUP` reducer: picks random ball, assigns random PU type (35% freeze, 35% bomb, 30% tbomb)
+- `useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps)`: renders PU symbol overlay
+- `BoardWithControls`: accepts and forwards powerUps prop
+- New engine imports: `makeBall`, `applyGravity`
+- `MenuScreen.js`: SOLO_MODES includes 'mayhem'; Mayhem button (orange border) in solo picker
+
+## Session 2026-06-16 (timed-bomb UX + Mayhem visual polish + sounds)
+
+Ten improvements to Mayhem mode (Tasks 1–10):
+
+### Timed bomb UX (Tasks 1–4)
+
+- **Only one tbomb at a time**: `SPAWN_POWERUP` reducer now checks `hasTbomb`
+  (any existing `powerUps` entry with `type === 'tbomb'`) before the random roll.
+  If a tbomb is already on the board, the spawn picks only from `freeze`/`bomb`.
+
+- **💣 + countdown inside**: The timed-bomb overlay changed from a plain number
+  to a `tbombBadge` View — a large 💣 emoji with the countdown number absolutely
+  positioned on top of it. Number turns amber at 4–6s (`tbombCountWarn`) and
+  red at 1–3s (`tbombCountUrgent`). New styles: `tbombBadge`, `tbombCount`,
+  `tbombCountWarn`, `tbombCountUrgent`.
+
+- **Pulsing scale animation**: `useBallAnimations` gained a `tbombPulseRef`
+  (`Map<id, { scale: Animated.Value, lastTier, loop }>`). During render, if a ball
+  has a `tbomb` power-up, its entry is created synchronously and the scale value
+  is pushed into the ball's `transform`. A dedicated `useEffect` starts/restarts
+  the loop only when the speed tier changes (thresholds at 6s, 4s, 2s remaining),
+  preventing unnecessary animation restarts on every second tick. Four tier speeds:
+  halfDur 500/280/170/90ms; peak scale 1.12/1.20/1.30.
+
+- **Screen-edge danger glow**: `dangerGlowAnim` (`Animated.Value`, 0–1) + a pulsing
+  `Animated.loop` in a `useEffect` keyed to `state.powerUps` + `state.gameOver`.
+  Tier system (0 = off, 1–4 = escalating speed). Rendered as an
+  `<Animated.View pointerEvents="none">` with `StyleSheet.absoluteFill` +
+  `dangerBorder` style (6px red border), opacity driven by `dangerGlowAnim`.
+  New style: `dangerBorder`.
+
+### Mayhem visual polish (Tasks 5–7)
+
+- **Starts with 0–3 random power-ups**: `createInitialState` in the Mayhem branch
+  now picks 0–3 random ball IDs from `boards[0]` and assigns them `freeze` or
+  `bomb` power-ups (no tbomb on start). Fix: earlier code called `createFullBoard()`
+  a second time inside an IIFE, producing IDs that didn't match the actual board.
+  Refactored to imperative style — build `boards` first, then read IDs from it.
+
+- **Coloured glow ring on power-up balls**: `useBallAnimations` renders a `puGlowRing`
+  View over each power-up ball (in addition to the icon overlay). Ring colour:
+  cyan for freeze (`puGlowFreeze`), orange for bomb (`puGlowBomb`), red for tbomb
+  (`puGlowTbomb`). Uses `boxShadow` on web, `shadowColor` on native.
+
+- **Freeze match: icy overlay on play area**: `BoardWithControls` accepts a new
+  `freezeActive` boolean prop. A `freezeAnim` ref (`Animated.Value`) transitions
+  0 → 1 (300ms) when freeze activates and 1 → 0 (800ms) when it ends, driving the
+  opacity of a `StyleSheet.absoluteFill` overlay (`freezeOverlay` style — translucent
+  cyan background + inset box-shadow) with an ❄ FROZEN ❄ label. New styles:
+  `freezeOverlay`, `freezeOverlayText`.
+
+- **Bomb match: expanding blast ring**: `useBallAnimations` tracks `lastBombBlast`
+  (a `{ id, row, col }` object from state, with monotonically increasing ID). When a
+  new blast fires, spawns a `blast` entry (`ring`/`opacity`/`flash`/`flashOp`
+  Animated.Values) and runs a 380ms parallel animation — an expanding orange ring
+  (0.1→1 scale, 0.9→0 opacity) plus an inner white disc flash. `lastBlastIdRef`
+  prevents duplicate blasts on re-renders. `lastBombBlast` tracked in state via
+  `applySlide` and seeded in `createInitialState`.
+
+### Sound effects (Tasks 8–10)
+
+- **`playFreeze()`** (`src/sounds.js`): descending cascade of 4 glassy tones
+  (2400, 1900, 1500, 1100 Hz) with inharmonic high partials, staggered 55ms apart.
+
+- **`playBomb()`** (`src/sounds.js`): noise burst buffer (exponential decay) + low
+  sine sweep (90→30 Hz) + 5 scattered debris pings at random frequencies.
+
+- **Wired in `GameScreen.js`**: two new `useEffect`s — one watching `freezeLeft`
+  (plays when transitioning from 0 to positive), one watching `lastBombBlast.id`
+  (plays when a new blast fires, guarded by `prevBombBlastIdRef`).
+
+All files verified via `cat | npx esbuild --loader=jsx`.
+
+---
+
+## Session 2026-06-16 (leaderboard)
+
+Added a per-mode leaderboard accessible from the main menu.
+
+### New file: `src/screens/LeaderboardScreen.js`
+
+- Shows top-10 scores per solo mode in a tab UI (MAYHEM / TIME ATTACK / ZEN /
+  CHALLENGE, matching the 4 solo modes).
+- Each entry: rank medal (🥇🥈🥉 for top 3, number thereafter), player name,
+  score, and ISO date.
+- "Clear [MODE] Scores" button with a confirmation modal.
+- Uses `useFocusEffect` to reload all leaderboard data whenever the screen comes
+  into focus. Exports `LEADERBOARD_MODES` constant (4 `{ key, label, icon }` objects).
+- AsyncStorage keys: `leaderboard_<mode>` (e.g. `leaderboard_mayhem`).
+  Each value is a JSON array of `{ name, score, date }` entries sorted by score desc,
+  capped at 10.
+
+### `App.js`
+
+- Imports `LeaderboardScreen` and registers `<Stack.Screen name="Leaderboard" component={LeaderboardScreen} />`.
+
+### `src/screens/MenuScreen.js`
+
+- Replaced standalone "How to Play" link with a `bottomLinks` View containing
+  a new gold "🏆 Leaderboard" button (navigates to `'Leaderboard'`) above the
+  existing "How to Play" link. New styles: `bottomLinks`, `lbLink`, `lbLinkTxt`.
+
+### `src/screens/GameScreen.js`
+
+- Added `TextInput` to the react-native import.
+- New state: `showNameEntry` (bool), `lbName` (string), `lbSaved` (bool).
+  All three reset to defaults when `state.gameOver` becomes false (new game).
+- New `useEffect` (fires when `state.gameOver` becomes true in a solo mode):
+  reads `leaderboard_${mode}` from AsyncStorage and sets `showNameEntry = true`
+  if the score qualifies (top-10 entry or empty list).
+- New `saveToLeaderboard` useCallback: appends `{ name, score, date }` entry,
+  sorts descending, slices to 10, writes back to AsyncStorage, sets `lbSaved = true`.
+- Game-over overlay (isSolo branch): when `showNameEntry && !lbSaved`, renders a
+  `nameEntryBox` card with a TextInput (autofocus, `onSubmitEditing` wired),
+  "Save to Leaderboard" button, and a "Skip" link. After saving, shows a green
+  "✓ Score saved to leaderboard!" confirmation. Play Again / Main Menu buttons
+  always visible regardless.
+- New styles: `nameEntryBox`, `nameEntryTitle`, `nameEntryInput`, `nameSaveBtn`,
+  `nameSaveBtnTxt`, `nameSkipTxt`, `lbSavedTxt`.
+
+All four files verified via `cat | npx esbuild --loader=jsx`.
+
+---
+
+## What's next
+
+**Manual playtest needed:**
+- Mayhem mode: timed bomb 💣 countdown visible inside emoji, pulsing escalates as
+  timer drops; screen edge glows red and speeds up; max one tbomb at a time.
+- Matching a freeze power-up: icy blue overlay + ❄ FROZEN ❄ text for duration.
+- Matching a bomb power-up: expanding orange blast ring visible on the board.
+- Sounds play for freeze and bomb matches (requires sound enabled).
+- Mayhem starts with 0–3 freeze/bomb power-ups already on the board.
+- Menu: "🏆 Leaderboard" button opens the leaderboard screen with mode tabs.
+- After a solo game, if the score makes the top 10, a name-entry field appears
+  in the game-over overlay. Entering a name and saving adds it to the leaderboard.
+  Skipping skips silently. Leaderboard shows correct entries per mode tab.
+
+**Suggested future ideas (not requested):**
+- Update in-game tutorial to mention Mayhem mode / power-ups
+- Tune power-up spawn frequency / tbomb timer if balance feels off
+- Native build (iOS/Android via EAS) remains a future option
