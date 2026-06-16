@@ -49,6 +49,7 @@ import {
 
 import BallView from '../components/BallView';
 import * as sfx from '../sounds';
+import { scoreQualifies, saveScore } from '../firebase';
 
 // ── Initial state ─────────────────────────────────────────────────────────────
 
@@ -1591,14 +1592,8 @@ export default function GameScreen({ navigation, route }) {
 
   // ── Leaderboard save ─────────────────────────────────────────────────────────
   const saveToLeaderboard = useCallback(async () => {
-    const name = lbName.trim() || 'Player';
     const score = stateRef.current.scores[0];
-    const key = `leaderboard_${mode}`;
-    const v = await AsyncStorage.getItem(key);
-    const entries = v ? JSON.parse(v) : [];
-    entries.push({ name, score, date: new Date().toISOString().slice(0, 10) });
-    entries.sort((a, b) => b.score - a.score);
-    await AsyncStorage.setItem(key, JSON.stringify(entries.slice(0, 10)));
+    await saveScore(mode, lbName, score);
     setShowNameEntry(false);
     setLbSaved(true);
     sfx.playClick();
@@ -1619,13 +1614,9 @@ export default function GameScreen({ navigation, route }) {
   useEffect(() => {
     if (!state.gameOver || !isSolo) return;
     const score = state.scores[0];
-    if (score <= 0) return;
-    AsyncStorage.getItem(`leaderboard_${mode}`).then(v => {
-      const entries = v ? JSON.parse(v) : [];
-      if (entries.length < 10 || score > entries[entries.length - 1].score) {
-        setShowNameEntry(true);
-      }
-    });
+    scoreQualifies(mode, score)
+      .then(qualifies => { if (qualifies) setShowNameEntry(true); })
+      .catch(() => {}); // silently skip prompt if offline
   }, [state.gameOver]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

@@ -8,12 +8,12 @@
 
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as sfx from '../sounds';
+import { fetchLeaderboard } from '../firebase';
 
 export const LEADERBOARD_MODES = [
   { key: 'mayhem',      label: 'MAYHEM',      icon: '💥' },
@@ -28,33 +28,26 @@ const RANK_LABELS = ['🥇', '🥈', '🥉'];
 export default function LeaderboardScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [activeMode, setActiveMode] = useState(LEADERBOARD_MODES[0].key);
-  const [boards, setBoards] = useState({}); // { [mode]: Entry[] }
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [boards, setBoards]   = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState(null);
 
-  // Reload all leaderboard data whenever the screen comes into focus
+  // Reload scores for the active mode whenever it changes or screen focuses
   useFocusEffect(
     useCallback(() => {
-      Promise.all(
-        LEADERBOARD_MODES.map(m => AsyncStorage.getItem(`leaderboard_${m.key}`))
-      ).then(vals => {
-        const next = {};
-        LEADERBOARD_MODES.forEach((m, i) => {
-          next[m.key] = vals[i] ? JSON.parse(vals[i]) : [];
-        });
-        setBoards(next);
-      });
-    }, [])
+      let cancelled = false;
+      setLoading(true);
+      setError(null);
+      fetchLeaderboard(activeMode)
+        .then(entries => { if (!cancelled) { setBoards(prev => ({ ...prev, [activeMode]: entries })); } })
+        .catch(() => { if (!cancelled) setError('Could not load scores. Check your connection.'); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
+    }, [activeMode])
   );
 
   const entries = boards[activeMode] ?? [];
   const activeLabel = LEADERBOARD_MODES.find(m => m.key === activeMode)?.label ?? '';
-
-  const clearMode = async () => {
-    await AsyncStorage.removeItem(`leaderboard_${activeMode}`);
-    setBoards(prev => ({ ...prev, [activeMode]: [] }));
-    setShowClearConfirm(false);
-    sfx.playClick();
-  };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -89,7 +82,17 @@ export default function LeaderboardScreen({ navigation }) {
       </View>
 
       {/* Entries list */}
-      {entries.length === 0 ? (
+      {loading ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyIcon}>⏳</Text>
+          <Text style={styles.emptyText}>Loading scores…</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyIcon}>⚠️</Text>
+          <Text style={styles.emptyText}>{error}</Text>
+        </View>
+      ) : entries.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>📭</Text>
           <Text style={styles.emptyText}>No scores yet for {activeLabel}.</Text>
@@ -134,37 +137,6 @@ export default function LeaderboardScreen({ navigation }) {
         </ScrollView>
       )}
 
-      {/* Clear button */}
-      {entries.length > 0 && (
-        <TouchableOpacity
-          style={styles.clearBtn}
-          onPress={() => { sfx.playClick(); setShowClearConfirm(true); }}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.clearBtnTxt}>Clear {activeLabel} Scores</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Clear confirmation modal */}
-      <Modal visible={showClearConfirm} animationType="fade" transparent onRequestClose={() => setShowClearConfirm(false)}>
-        <View style={styles.confirmBackdrop}>
-          <View style={styles.confirmSheet}>
-            <Text style={styles.confirmTitle}>Clear Scores?</Text>
-            <Text style={styles.confirmMsg}>
-              All {activeLabel} leaderboard entries will be permanently deleted.
-            </Text>
-            <TouchableOpacity style={styles.confirmYes} onPress={clearMode}>
-              <Text style={styles.confirmYesTxt}>Clear All</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.confirmNo}
-              onPress={() => { sfx.playClick(); setShowClearConfirm(false); }}
-            >
-              <Text style={styles.confirmNoTxt}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
