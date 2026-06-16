@@ -40,7 +40,7 @@ export default function LeaderboardScreen({ navigation }) {
       setError(null);
       fetchLeaderboard(activeMode)
         .then(entries => { if (!cancelled) { setBoards(prev => ({ ...prev, [activeMode]: entries })); } })
-        .catch(() => { if (!cancelled) setError('Could not load scores. Check your connection.'); })
+        .catch(err => { if (!cancelled) setError(`Error: ${err?.code ?? err?.message ?? String(err)}`); })
         .finally(() => { if (!cancelled) setLoading(false); });
       return () => { cancelled = true; };
     }, [activeMode])
@@ -287,5 +287,4 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
-  confirmNoTxt: { color: '#666', fontSize: 15 },
-});
+  confirmNoTxt: { color: '#666', fontSize: 15 }
