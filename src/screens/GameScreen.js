@@ -101,7 +101,8 @@ function createInitialState(mode, ballCount = 5) {
     base.powerUps = startPowerUps;
     base.freezeLeft = 0;
     base.mayhemOverReason = null;
-    base.lastBombBlast = null; // { id, row, col } — set when a bomb PU fires
+    base.lastBombBlast    = null; // { id, row, col } — set when a bomb PU fires
+    base.lastTbombDefuse  = 0;   // incremented each time a tbomb is defused by a match
   }
 
   return base;
@@ -195,7 +196,8 @@ function applySlide(state, playerIdx, slidedBoard) {
   let powerUps = state.powerUps ?? {};
   let freezeLeft = state.freezeLeft ?? 0;
   const mayhemOverReason = state.mayhemOverReason ?? null;
-  let lastBombBlast = state.lastBombBlast ?? null;
+  let lastBombBlast    = state.lastBombBlast ?? null;
+  let lastTbombDefuse  = state.lastTbombDefuse ?? 0;
 
   if (state.mode === 'mayhem' && Object.keys(powerUps).length > 0) {
     // Record each PU ball's position in the post-slide (pre-settle) board
@@ -244,8 +246,11 @@ function applySlide(state, playerIdx, slidedBoard) {
         const { board: blastSettled, rawScore: blastRaw } = resolveMatchesRelax(blasted);
         blastBoard = blastSettled;
         scores[playerIdx] += blastRaw; // any chain matches from the blast score too
+
+      } else if (pu.type === 'tbomb') {
+        // Defused! Increment so GameScreen's useEffect can play the triumph sound.
+        lastTbombDefuse += 1;
       }
-      // tbomb: matched/defused before timer expired — already removed from newPowerUps
     }
 
     boards[playerIdx] = blastBoard;
@@ -262,7 +267,7 @@ function applySlide(state, playerIdx, slidedBoard) {
     message,
     lastMatch,
     aiTick: playerIdx === 1 ? state.aiTick + 1 : state.aiTick,
-    ...(state.mode === 'mayhem' && { powerUps, freezeLeft, mayhemOverReason, lastBombBlast }),
+    ...(state.mode === 'mayhem' && { powerUps, freezeLeft, mayhemOverReason, lastBombBlast, lastTbombDefuse }),
   };
 }
 
@@ -1063,7 +1068,7 @@ const TAP_THRESHOLD = 10;
 const BoardWithControls = React.memo(({
   board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch, colWrap, powerUps, freezeActive, lastBombBlast,
 }) => {
-  // Animate the freeze overlay in/out as freezeActive changes
+  // Animate the freeze border in/out as freezeActive changes
   const freezeAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(freezeAnim, {
@@ -1071,6 +1076,22 @@ const BoardWithControls = React.memo(({
       duration: freezeActive ? 300 : 800,
       useNativeDriver: false,
     }).start();
+  }, [freezeActive]);
+
+  // Drift animation for corner snowflakes — gentle up/down float
+  const snowDriftAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (freezeActive) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(snowDriftAnim, { toValue: 1, duration: 1400, useNativeDriver: false }),
+          Animated.timing(snowDriftAnim, { toValue: 0, duration: 1400, useNativeDriver: false }),
+        ])
+      ).start();
+    } else {
+      snowDriftAnim.stopAnimation();
+      snowDriftAnim.setValue(0);
+    }
   }, [freezeActive]);
   const swipeThreshold = cellSize * 0.45;
 
@@ -1264,17 +1285,38 @@ const BoardWithControls = React.memo(({
           />
         )}
 
-        {/* Freeze overlay — icy tint across the entire board while freeze is active */}
+        {/* Freeze border — glowing ice ring around the board, nothing over the gameplay area */}
         <Animated.View
           pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            styles.freezeOverlay,
-            { opacity: freezeAnim },
-          ]}
-        >
-          <Text style={styles.freezeOverlayText}>❄ FROZEN ❄</Text>
-        </Animated.View>
+          style={[StyleSheet.absoluteFill, styles.freezeBorder, { opacity: freezeAnim }]}
+        />
+        {/* Corner snowflakes — drift gently at each corner while frozen */}
+        {[
+          { key: 'tl', top: 2,    left:  2 },
+          { key: 'tr', top: 2,    right: 2 },
+          { key: 'bl', bottom: 2, left:  2 },
+          { key: 'br', bottom: 2, right: 2 },
+        ].map(({ key, ...pos }) => (
+          <Animated.Text
+            key={key}
+            pointerEvents="none"
+            style={[
+              styles.freezeCorner,
+              pos,
+              {
+                opacity: freezeAnim,
+                transform: [{
+                  translateY: snowDriftAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: key.startsWith('t') ? [0, 3] : [0, -3],
+                  }),
+                }],
+              },
+            ]}
+          >
+            ❄
+          </Animated.Text>
+        ))}
       </View>
     </View>
   );
@@ -1636,7 +1678,8 @@ export default function GameScreen({ navigation, route }) {
   const powerUps      = state.powerUps ?? {};
   const freezeLeft    = state.freezeLeft ?? 0;
   const mayhemOverReason = state.mayhemOverReason ?? null;
-  const lastBombBlast = state.lastBombBlast ?? null;
+  const lastBombBlast   = state.lastBombBlast ?? null;
+  const lastTbombDefuse = state.lastTbombDefuse ?? 0;
 
   // ── Power-up sound effects ─────────────────────────────────────────────────────
   // Freeze: play when freezeLeft transitions from 0 to positive (i.e. freeze activated)
@@ -1654,6 +1697,16 @@ export default function GameScreen({ navigation, route }) {
       sfx.playBomb();
     }
   }, [lastBombBlast]);
+
+  // Tbomb defuse: triumphant sound each time a timed bomb is matched/defused
+  const prevTbombDefuseRef = useRef(0);
+  useEffect(() => {
+    if (lastTbombDefuse > prevTbombDefuseRef.current) {
+      prevTbombDefuseRef.current = lastTbombDefuse;
+      sfx.playTbombDefuse();
+    }
+  }, [lastTbombDefuse]);
+
   const p2Label = mode === 'ai' ? 'CPU' : 'P2';
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -2275,26 +2328,28 @@ const styles = StyleSheet.create({
     zIndex: 50,
   },
 
-  // Icy overlay rendered over the board while a freeze power-up is active
-  freezeOverlay: {
+  // Glowing ice border around the board while a freeze power-up is active
+  freezeBorder: {
     borderRadius: 6,
-    backgroundColor: 'rgba(125,249,255,0.22)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#7DF9FF',
+    backgroundColor: 'transparent',
     zIndex: 5,
     ...Platform.select({
-      web: { boxShadow: 'inset 0 0 20px 4px rgba(125,249,255,0.35)' },
+      web: { boxShadow: '0 0 18px 4px rgba(125,249,255,0.55), inset 0 0 10px 1px rgba(125,249,255,0.15)' },
       default: {},
     }),
   },
-  freezeOverlayText: {
+  // Corner ❄ snowflakes positioned at board corners
+  freezeCorner: {
+    position: 'absolute',
+    fontSize: 16,
     color: '#7DF9FF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    letterSpacing: 3,
-    textShadowColor: 'rgba(0,0,0,0.7)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 6,
+    zIndex: 6,
+    ...Platform.select({
+      web: { textShadow: '0 0 8px rgba(125,249,255,0.9)' },
+      default: {},
+    }),
   },
 
   // Frozen-timer display in header

@@ -199,6 +199,22 @@ export function playFreeze() {
     ping(f, { dur: 0.40, gain: 0.12, delay: i * 0.055, harmonics: [1, 2.5, 4.2] }));
 }
 
+/**
+ * Triumphant last-second save — played when a timed bomb is defused by a match.
+ * Fast rising arpeggio that accelerates and peaks in a bright shimmer burst.
+ */
+export function playTbombDefuse() {
+  ensureLoaded();
+  if (muted) return;
+  const ac = getCtx();
+  if (!ac) return;
+  // Rising arpeggio — each note comes in faster than the last
+  [880, 1175, 1568, 2349, 3136].forEach((f, i) =>
+    ping(f, { dur: 0.45, gain: 0.20, delay: i * 0.055, harmonics: [1, 2, 3.5] }));
+  // Final shimmer burst at the peak
+  ping(4186, { dur: 0.35, gain: 0.12, delay: 0.30, harmonics: [1, 2] });
+}
+
 /** Low explosion thud + debris scatter — played when a bomb power-up fires. */
 export function playBomb() {
   ensureLoaded();
