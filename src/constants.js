@@ -60,7 +60,7 @@ export const BALL_COLORS = {
   blue:   '#378ADD',
   green:  '#639922',
   amber:  '#EF9F27',
-  purple: '#7F77DD',
+  purple: '#9B2FCF',
   teal:   '#1D9E75',
 };
 
