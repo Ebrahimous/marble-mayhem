@@ -1,13 +1,14 @@
 /**
  * firebase.js — Firestore leaderboard client
  *
- * Collection: "leaderboard"
- * Each document: { name, score, mode, date, createdAt }
+ * One collection per mode (e.g. "leaderboard_mayhem", "leaderboard_solo-time")
+ * so queries only need orderBy('score') — no composite index required.
  *
- * Security rules (set in Firebase console):
- *   allow read: if true;
- *   allow create: if true;
- *   allow update, delete: if false;
+ * Firestore security rules:
+ *   match /{collection}/{entry} {
+ *     allow read, create: if collection.matches('leaderboard_.*');
+ *     allow update, delete: if false;
+ *   }
  */
 
 import { initializeApp, getApps } from 'firebase/app';
@@ -16,7 +17,6 @@ import {
   collection,
   addDoc,
   query,
-  where,
   orderBy,
   limit,
   getDocs,
@@ -36,20 +36,20 @@ const firebaseConfig = {
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 
-const LB_COLLECTION = 'leaderboard';
+// Each mode gets its own collection — avoids needing a composite index.
+// e.g. "leaderboard_mayhem", "leaderboard_solo-time", etc.
 const TOP_N = 10;
+
+function lbCollection(mode) {
+  return collection(db, `leaderboard_${mode}`);
+}
 
 /**
  * Fetch the top-N scores for a given mode, sorted highest first.
  * Returns an array of { name, score, date } objects.
  */
 export async function fetchLeaderboard(mode) {
-  const q = query(
-    collection(db, LB_COLLECTION),
-    where('mode', '==', mode),
-    orderBy('score', 'desc'),
-    limit(TOP_N),
-  );
+  const q = query(lbCollection(mode), orderBy('score', 'desc'), limit(TOP_N));
   const snap = await getDocs(q);
   return snap.docs.map(d => {
     const { name, score, date } = d.data();
@@ -59,16 +59,10 @@ export async function fetchLeaderboard(mode) {
 
 /**
  * Returns true if `score` would appear in the top-N for `mode`.
- * Used to decide whether to show the name-entry prompt after a game.
  */
 export async function scoreQualifies(mode, score) {
   if (score <= 0) return false;
-  const q = query(
-    collection(db, LB_COLLECTION),
-    where('mode', '==', mode),
-    orderBy('score', 'desc'),
-    limit(TOP_N),
-  );
+  const q = query(lbCollection(mode), orderBy('score', 'desc'), limit(TOP_N));
   const snap = await getDocs(q);
   if (snap.size < TOP_N) return true;
   const lowest = snap.docs[snap.size - 1].data().score;
@@ -79,8 +73,7 @@ export async function scoreQualifies(mode, score) {
  * Save a leaderboard entry.
  */
 export async function saveScore(mode, name, score) {
-  await addDoc(collection(db, LB_COLLECTION), {
-    mode,
+  await addDoc(lbCollection(mode), {
     name: name.trim() || 'Player',
     score,
     date: new Date().toISOString().slice(0, 10),
