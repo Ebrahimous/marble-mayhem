@@ -18,7 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   COLS, ROWS, MAIN_ROW,
-  CHAIN_BONUS,
+  CHAIN_BONUS, SCORE_PER_BALL,
   AI_DELAY, DEFAULT_AI_DIFFICULTY,
   BALL_TYPES_5, BALL_TYPES_6,
   BALL_ADD_INTERVAL, BALL_ADD_COUNT,
@@ -224,17 +224,50 @@ function applySlide(state, playerIdx, slidedBoard) {
         freezeLeft = 5; // pause the countdown for 5 s
 
       } else if (pu.type === 'bomb') {
-        // Clear a 3×3 area, let gravity settle, refill voids, resolve matches
         const { row: br, col: bc } = puPos[idStr];
-        // Record blast position for the visual shockwave ring
-        lastBombBlast = { id: (lastBombBlast?.id ?? 0) + 1, row: br, col: bc };
-        let blasted = blastBoard.map(r => [...r]);
-        for (let r = Math.max(0, br - 1); r <= Math.min(ROWS - 1, br + 1); r++) {
-          for (let c = Math.max(0, bc - 1); c <= Math.min(COLS - 1, bc + 1); c++) {
-            blasted[r][c] = null;
+
+        // Queue-based blast — supports chain reactions if a bomb is in the blast area.
+        // We accumulate all destroyed cell coords first, then clear at once.
+        const blastQueue = [{ row: br, col: bc }];
+        const destroyedKeys = new Set(); // "row,col" strings to avoid double-processing
+
+        while (blastQueue.length > 0) {
+          const { row: qr, col: qc } = blastQueue.shift();
+          // Record position for the visual shockwave ring
+          lastBombBlast = { id: (lastBombBlast?.id ?? 0) + 1, row: qr, col: qc };
+
+          for (let r = Math.max(0, qr - 1); r <= Math.min(ROWS - 1, qr + 1); r++) {
+            for (let c = Math.max(0, qc - 1); c <= Math.min(COLS - 1, qc + 1); c++) {
+              const key = `${r},${c}`;
+              if (destroyedKeys.has(key)) continue;
+              destroyedKeys.add(key);
+              const ball = blastBoard[r][c];
+              if (!ball) continue;
+              // Every ball destroyed by the blast earns score
+              scores[playerIdx] += SCORE_PER_BALL;
+              // If it's a power-up ball, trigger its effect
+              if (newPowerUps[ball.id]) {
+                const chainPu = newPowerUps[ball.id];
+                delete newPowerUps[ball.id]; // consume it
+                if (chainPu.type === 'freeze') {
+                  freezeLeft = 5; // freeze power-up caught in blast → activates
+                } else if (chainPu.type === 'bomb') {
+                  blastQueue.push({ row: r, col: c }); // chain explosion
+                } else if (chainPu.type === 'tbomb') {
+                  lastTbombDefuse += 1; // tbomb destroyed by blast — no game over
+                }
+              }
+            }
           }
         }
-        blasted = applyGravity(blasted); // let remaining balls settle into the voids
+
+        // Clear all blast-affected cells at once
+        let blasted = blastBoard.map(row => [...row]);
+        for (const key of destroyedKeys) {
+          const [r, c] = key.split(',').map(Number);
+          blasted[r][c] = null;
+        }
+        blasted = applyGravity(blasted);
         // Refill every null cell with a fresh ball so the board stays packed
         for (let r = 0; r < ROWS; r++) {
           for (let c = 0; c < COLS; c++) {
@@ -245,7 +278,7 @@ function applySlide(state, playerIdx, slidedBoard) {
         }
         const { board: blastSettled, rawScore: blastRaw } = resolveMatchesRelax(blasted);
         blastBoard = blastSettled;
-        scores[playerIdx] += blastRaw; // any chain matches from the blast score too
+        scores[playerIdx] += blastRaw; // bonus from any chain matches formed after blast
 
       } else if (pu.type === 'tbomb') {
         // Defused! Increment so GameScreen's useEffect can play the triumph sound.
