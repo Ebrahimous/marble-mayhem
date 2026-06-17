@@ -296,21 +296,6 @@ export default function MenuScreen({ navigation }) {
             <Text style={styles.sheetTitle}>Solo Mode</Text>
 
             <TouchableOpacity
-              style={[styles.modeBtn, styles.modeBtnAlt]}
-              onPress={() => { setSolo(false); play('solo-time'); }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modeBtnIcon}>⏱️</Text>
-              <View>
-                <Text style={styles.modeBtnLabel}>TIME ATTACK</Text>
-                <Text style={styles.modeBtnSub}>1 minute · score as much as you can</Text>
-                {bestScores['solo-time'] > 0 && (
-                  <Text style={styles.modeBtnBest}>Best: {bestScores['solo-time'].toLocaleString()}</Text>
-                )}
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
               style={[styles.modeBtn, styles.modeBtnAlt, styles.modeBtnMayhem]}
               onPress={() => { setSolo(false); play('mayhem'); }}
               activeOpacity={0.8}
