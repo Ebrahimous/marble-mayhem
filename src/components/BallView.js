@@ -14,7 +14,7 @@ const BallView = React.memo(({ type, size }) => {
   if (!type) {
     return <View style={{ width: size, height: size }} />;
   }
-  const color = BALL_COLORS[type];
+  const color = BALL_COLORS[type] ?? '#888888'; // fallback for unknown types
   const d = size - 4;
   return (
     <View style={{

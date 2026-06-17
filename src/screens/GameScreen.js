@@ -199,6 +199,8 @@ function applySlide(state, playerIdx, slidedBoard) {
   let lastBombBlast    = state.lastBombBlast ?? null;
   let lastTbombDefuse  = state.lastTbombDefuse ?? 0;
 
+  let blastGain = 0; // extra score from bomb blasts — added to popup at the end
+
   if (state.mode === 'mayhem' && Object.keys(powerUps).length > 0) {
     // Record each PU ball's position in the post-slide (pre-settle) board
     const puPos = {};
@@ -245,6 +247,7 @@ function applySlide(state, playerIdx, slidedBoard) {
               if (!ball) continue;
               // Every ball destroyed by the blast earns score
               scores[playerIdx] += SCORE_PER_BALL;
+              blastGain += SCORE_PER_BALL;
               // If it's a power-up ball, trigger its effect
               if (newPowerUps[ball.id]) {
                 const chainPu = newPowerUps[ball.id];
@@ -279,6 +282,7 @@ function applySlide(state, playerIdx, slidedBoard) {
         const { board: blastSettled, rawScore: blastRaw } = resolveMatchesRelax(blasted);
         blastBoard = blastSettled;
         scores[playerIdx] += blastRaw; // bonus from any chain matches formed after blast
+        blastGain += blastRaw;
 
       } else if (pu.type === 'tbomb') {
         // Defused! Increment so GameScreen's useEffect can play the triumph sound.
@@ -288,6 +292,10 @@ function applySlide(state, playerIdx, slidedBoard) {
 
     boards[playerIdx] = blastBoard;
     powerUps = newPowerUps;
+    // Update the popup to show the full score (match + blast)
+    if (blastGain > 0 && lastMatch) {
+      lastMatch = { ...lastMatch, gain: lastMatch.gain + blastGain };
+    }
   }
 
   return {
@@ -664,8 +672,8 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
         // spawns — defaulting to 'top' for balls with no recorded side,
         // e.g. the initial board fill), fading in as it arrives.
         const startTop = ball.spawnSide === 'bottom'
-          ? targetTop + cellSize
-          : targetTop - cellSize;
+          ? ROWS * cellSize     // start below the entire board
+          : -cellSize;          // start above the entire board
         entry = {
           top: new Animated.Value(startTop),
           left: new Animated.Value(targetLeft),
@@ -1575,7 +1583,7 @@ export default function GameScreen({ navigation, route }) {
   // Load this mode's current best once on mount.
   useEffect(() => {
     if (!isSolo) return;
-    AsyncStorage.getItem(`highScore_${mode}`).then(v => setBestScore(v ? parseInt(v, 10) : 0));
+    AsyncStorage.getItem(`highScore_${mode}_${ballCount}`).then(v => setBestScore(v ? parseInt(v, 10) : 0));
   }, [isSolo, mode]);
 
   // Zen Mode has no game-over state, so the high score is checked as the
@@ -1584,7 +1592,7 @@ export default function GameScreen({ navigation, route }) {
     if (!isSolo) return;
     const score = state.scores[0];
     if (score <= 0) return;
-    const key = `highScore_${mode}`;
+    const key = `highScore_${mode}_${ballCount}`;
     AsyncStorage.getItem(key).then(v => {
       const prevBest = v ? parseInt(v, 10) : 0;
       if (score > prevBest) {
@@ -2341,9 +2349,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     color: '#FFFFFF',
     fontWeight: '900',
-    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowColor: 'rgba(0,0,0,1)',
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4,
+    textShadowRadius: 8,
+    ...Platform.select({
+      web: { WebkitTextStroke: '1.5px #000', paintOrder: 'stroke fill' },
+    }),
   },
   tbombCountWarn:   { color: '#FFAA00' },  // 4-6 s remaining
   tbombCountUrgent: { color: '#FF2222' },  // 1-3 s remaining

@@ -39,16 +39,16 @@ export default function MenuScreen({ navigation }) {
   }, []);
 
   // Re-read each solo mode's high score every time the menu regains focus
-  // (e.g. coming back from a game that just set a new high score) — a plain
-  // mount-only effect would keep showing stale values until a full refresh.
+  // or the ball count changes — keyed per mode+ballCount so 5-ball and 6-ball
+  // leaderboards stay separate.
   useFocusEffect(
     useCallback(() => {
-      Promise.all(SOLO_MODES.map(m => AsyncStorage.getItem(`highScore_${m}`))).then(vals => {
+      Promise.all(SOLO_MODES.map(m => AsyncStorage.getItem(`highScore_${m}_${ballCount}`))).then(vals => {
         const next = {};
         SOLO_MODES.forEach((m, i) => { next[m] = vals[i] ? parseInt(vals[i], 10) : 0; });
         setBestScores(next);
       });
-    }, [])
+    }, [ballCount])
   );
 
   const overallBest = Math.max(0, ...SOLO_MODES.map(m => bestScores[m] ?? 0));
@@ -293,7 +293,7 @@ export default function MenuScreen({ navigation }) {
       <Modal visible={showSolo} animationType="slide" transparent onRequestClose={() => setSolo(false)}>
         <View style={styles.backdrop}>
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
-            <Text style={styles.sheetTitle}>Solo Mode</Text>
+            <Text style={styles.sheetTitle}>Game Mode</Text>
 
             <TouchableOpacity
               style={[styles.modeBtn, styles.modeBtnAlt, styles.modeBtnMayhem]}
