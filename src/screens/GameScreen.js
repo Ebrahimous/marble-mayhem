@@ -101,6 +101,7 @@ function createInitialState(mode, ballCount = 5) {
     });
     base.powerUps = startPowerUps;
     base.freezeLeft = 0;
+    base.multiplierLeft = 0;    // seconds remaining on the 2× score power-up
     base.mayhemOverReason = null;
     base.lastBombBlast    = null; // { id, row, col } — set when a bomb PU fires
     base.lastTbombDefuse  = 0;   // incremented each time a tbomb is defused by a match
@@ -154,7 +155,9 @@ function applySlide(state, playerIdx, slidedBoard) {
     // rawScore already accounts for match-size (3/4/5) scaling — see
     // resolveMatches() / MATCH_SIZE_BONUS in constants.js.
     const rawGain = rawScore + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
-    const gain = Math.round(rawGain * multiplier);
+    // 2× multiplier power-up stacks with the combo multiplier
+    const puMult = (state.mode === 'mayhem' && (state.multiplierLeft ?? 0) > 0) ? 2 : 1;
+    const gain = Math.round(rawGain * multiplier * puMult);
     scores[playerIdx] += gain;
 
     const comboTxt = combo > 1 ? ` ×${combo} COMBO` : '';
@@ -196,6 +199,7 @@ function applySlide(state, playerIdx, slidedBoard) {
   // their effects: freeze the timer, bomb-blast 3×3, or defuse a timed bomb.
   let powerUps = state.powerUps ?? {};
   let freezeLeft = state.freezeLeft ?? 0;
+  let multiplierLeft = state.multiplierLeft ?? 0;
   const mayhemOverReason = state.mayhemOverReason ?? null;
   let lastBombBlast    = state.lastBombBlast ?? null;
   let lastTbombDefuse  = state.lastTbombDefuse ?? 0;
@@ -288,6 +292,52 @@ function applySlide(state, playerIdx, slidedBoard) {
       } else if (pu.type === 'tbomb') {
         // Defused! Increment so GameScreen's useEffect can play the triumph sound.
         lastTbombDefuse += 1;
+
+      } else if (pu.type === 'wild') {
+        // Wild ball participated in a normal match — no extra effect needed.
+        // The match already cleared it along with its run.
+
+      } else if (pu.type === 'lightning') {
+        // Clear every ball in the column the lightning ball occupied.
+        const { col: lCol } = puPos[idStr];
+        let bonus = 0;
+        let lightBoard = blastBoard.map(row => [...row]);
+        for (let r = 0; r < ROWS; r++) {
+          if (lightBoard[r][lCol]) { bonus += SCORE_PER_BALL; lightBoard[r][lCol] = null; }
+        }
+        // Gravity collapses the remaining balls, then refill from top
+        lightBoard = applyGravity(lightBoard);
+        for (let r = 0; r < ROWS; r++) {
+          if (!lightBoard[r][lCol]) { const b = makeBall(); b.spawnSide = 'top'; lightBoard[r][lCol] = b; }
+        }
+        blastBoard = lightBoard;
+        scores[playerIdx] += bonus;
+        blastGain += bonus;
+
+      } else if (pu.type === 'multiplier') {
+        // Activate 8-second 2× score multiplier.
+        multiplierLeft = 8;
+
+      } else if (pu.type === 'colorbomb') {
+        // Remove every ball on the board that matches the bomb's stored colour.
+        const target = pu.targetColor;
+        let bonus = 0;
+        let cbBoard = blastBoard.map(row =>
+          row.map(ball => {
+            if (ball && ball.type === target) { bonus += SCORE_PER_BALL; return null; }
+            return ball;
+          })
+        );
+        cbBoard = applyGravity(cbBoard);
+        // Refill so the board stays packed
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (!cbBoard[r][c]) { const b = makeBall(); b.spawnSide = 'top'; cbBoard[r][c] = b; }
+          }
+        }
+        blastBoard = cbBoard;
+        scores[playerIdx] += bonus;
+        blastGain += bonus;
       }
     }
 
@@ -309,7 +359,7 @@ function applySlide(state, playerIdx, slidedBoard) {
     message,
     lastMatch,
     aiTick: playerIdx === 1 ? state.aiTick + 1 : state.aiTick,
-    ...(state.mode === 'mayhem' && { powerUps, freezeLeft, mayhemOverReason, lastBombBlast, lastTbombDefuse }),
+    ...(state.mode === 'mayhem' && { powerUps, freezeLeft, multiplierLeft, mayhemOverReason, lastBombBlast, lastTbombDefuse }),
   };
 }
 
@@ -447,7 +497,8 @@ function gameReducer(state, action) {
           }
         }
 
-        return { ...state, timeLeft, freezeLeft, powerUps, gameOver, mayhemOverReason };
+        const multiplierLeft = Math.max(0, (state.multiplierLeft ?? 0) - 1);
+        return { ...state, timeLeft, freezeLeft, multiplierLeft, powerUps, gameOver, mayhemOverReason };
       }
 
       const timeLeft = Math.max(0, state.timeLeft - 1);
@@ -470,9 +521,50 @@ function gameReducer(state, action) {
       // appearing before the player has had a chance to defuse the first.
       const hasTbomb = Object.values(state.powerUps).some(p => p.type === 'tbomb');
       const roll = Math.random();
-      const type = hasTbomb
-        ? (roll < 0.5 ? 'freeze' : 'bomb')
-        : (roll < 0.35 ? 'freeze' : roll < 0.70 ? 'bomb' : 'tbomb');
+      // Weights (no tbomb): freeze 28%, bomb 22%, tbomb 20%, wild 12%, lightning 8%, multiplier 5%, colorbomb 5%
+      // Weights (tbomb active): freeze 35%, bomb 30%, wild 18%, lightning 10%, multiplier 4%, colorbomb 3%
+      let type;
+      if (hasTbomb) {
+        type = roll < 0.35 ? 'freeze'
+             : roll < 0.65 ? 'bomb'
+             : roll < 0.83 ? 'wild'
+             : roll < 0.93 ? 'lightning'
+             : roll < 0.97 ? 'multiplier'
+             :                'colorbomb';
+      } else {
+        type = roll < 0.28 ? 'freeze'
+             : roll < 0.50 ? 'bomb'
+             : roll < 0.70 ? 'tbomb'
+             : roll < 0.82 ? 'wild'
+             : roll < 0.90 ? 'lightning'
+             : roll < 0.95 ? 'multiplier'
+             :                'colorbomb';
+      }
+
+      // Wild ball: mark the board ball's type as 'wild' so the engine sees it.
+      if (type === 'wild') {
+        const newBoards = state.boards.map((brd, bi) =>
+          bi !== 0 ? brd : brd.map(row =>
+            row.map(b => (b && b.id === id) ? { ...b, type: 'wild' } : b)
+          )
+        );
+        return {
+          ...state,
+          boards: newBoards,
+          powerUps: { ...state.powerUps, [id]: { type: 'wild', timer: null } },
+        };
+      }
+
+      // Color bomb: store the ball's current colour so the effect knows what to erase.
+      if (type === 'colorbomb') {
+        let targetColor = null;
+        board.forEach(row => row.forEach(b => { if (b && b.id === id) targetColor = b.type; }));
+        return {
+          ...state,
+          powerUps: { ...state.powerUps, [id]: { type: 'colorbomb', timer: null, targetColor } },
+        };
+      }
+
       return {
         ...state,
         powerUps: {
@@ -960,7 +1052,13 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
           </View>
         ) : (
           <Text style={[styles.puSymbol, { fontSize: cellSize * 0.42 }]}>
-            {pu.type === 'freeze' ? '❄' : '💥'}
+            {pu.type === 'freeze'     ? '❄'
+           : pu.type === 'bomb'      ? '💥'
+           : pu.type === 'wild'      ? '🌈'
+           : pu.type === 'lightning' ? '⚡'
+           : pu.type === 'multiplier'? '×2'
+           : pu.type === 'colorbomb' ? '🎨'
+           : '?'}
           </Text>
         )}
       </View>
@@ -972,9 +1070,13 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
     const puGlow = pu ? (
       <View style={[
         styles.puGlowRing,
-        pu.type === 'freeze' && styles.puGlowFreeze,
-        pu.type === 'bomb'   && styles.puGlowBomb,
-        pu.type === 'tbomb'  && styles.puGlowTbomb,
+        pu.type === 'freeze'     && styles.puGlowFreeze,
+        pu.type === 'bomb'       && styles.puGlowBomb,
+        pu.type === 'tbomb'      && styles.puGlowTbomb,
+        pu.type === 'wild'       && styles.puGlowWild,
+        pu.type === 'lightning'  && styles.puGlowLightning,
+        pu.type === 'multiplier' && styles.puGlowMultiplier,
+        pu.type === 'colorbomb'  && styles.puGlowColorbomb,
         { borderRadius: cellSize * 0.5, width: cellSize - 2, height: cellSize - 2 },
       ]} pointerEvents="none" />
     ) : null;
@@ -1135,6 +1237,32 @@ const BoardWithControls = React.memo(({
       snowDriftAnim.setValue(0);
     }
   }, [freezeActive]);
+
+  // Match flash — brief white burst on main row when a match fires
+  const matchFlashAnim = useRef(new Animated.Value(0)).current;
+  const lastMatchIdRef = useRef(null);
+  useEffect(() => {
+    if (!lastMatch || lastMatch.id === lastMatchIdRef.current) return;
+    lastMatchIdRef.current = lastMatch.id;
+    matchFlashAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(matchFlashAnim, { toValue: 0.6, duration: 70,  useNativeDriver: true }),
+      Animated.timing(matchFlashAnim, { toValue: 0,   duration: 230, useNativeDriver: true }),
+    ]).start();
+  }, [lastMatch]);
+
+  // Main row shimmer — slow gold pulse that loops forever
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(shimmerAnim, { toValue: 0, duration: 1400, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
   const swipeThreshold = cellSize * 0.45;
 
   // Always-fresh callbacks/values without stale closure
@@ -1326,6 +1454,35 @@ const BoardWithControls = React.memo(({
             pointerEvents="box-only"
           />
         )}
+
+
+        {/* Main row shimmer — repeating gold pulse to draw the eye */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: MAIN_ROW * cellSize,
+            left: 0,
+            width: boardPx,
+            height: cellSize,
+            backgroundColor: '#FFD700',
+            opacity: shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [0.03, 0.16] }),
+          }}
+        />
+
+        {/* Match flash — white burst over main row on each match */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: MAIN_ROW * cellSize,
+            left: 0,
+            width: boardPx,
+            height: cellSize,
+            backgroundColor: '#FFFFFF',
+            opacity: matchFlashAnim,
+          }}
+        />
 
         {/* Freeze border — glowing ice ring around the board, nothing over the gameplay area */}
         <Animated.View
@@ -1739,8 +1896,9 @@ export default function GameScreen({ navigation, route }) {
   }, [state.gameOver]);
 
   const { boards, scores, gameOver, winner, lastMatch, selectedCol, paused, timeLeft } = state;
-  const powerUps      = state.powerUps ?? {};
-  const freezeLeft    = state.freezeLeft ?? 0;
+  const powerUps       = state.powerUps ?? {};
+  const freezeLeft     = state.freezeLeft ?? 0;
+  const multiplierLeft = state.multiplierLeft ?? 0;
   const mayhemOverReason = state.mayhemOverReason ?? null;
   const lastBombBlast   = state.lastBombBlast ?? null;
   const lastTbombDefuse = state.lastTbombDefuse ?? 0;
@@ -1845,6 +2003,12 @@ export default function GameScreen({ navigation, route }) {
                   ]}>
                     {formatTime(timeLeft)}
                   </Text>
+                  {mode === 'mayhem' && multiplierLeft > 0 && (
+                    <View style={styles.multBarOuter}>
+                      <View style={[styles.multBarInner, { width: `${(multiplierLeft / 8) * 100}%` }]} />
+                      <Text style={styles.multBarLabel}>×2</Text>
+                    </View>
+                  )}
                 </View>
               )}
             </>
@@ -2175,6 +2339,23 @@ const styles = StyleSheet.create({
   scoreBlock:   { alignItems: 'center' },
   scoreLabel:   { color: '#555', fontSize: 10, letterSpacing: 1 },
   scoreVal:     { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
+
+  // 2× multiplier countdown bar (shown under TIME block in Mayhem)
+  multBarOuter: {
+    position: 'relative', marginTop: 3,
+    width: 64, height: 6, borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.15)', overflow: 'hidden',
+  },
+  multBarInner: {
+    position: 'absolute', left: 0, top: 0, bottom: 0,
+    backgroundColor: '#FFD700', borderRadius: 3,
+  },
+  multBarLabel: {
+    position: 'absolute', left: 0, right: 0, top: -14,
+    textAlign: 'center', fontSize: 10, fontWeight: 'bold',
+    color: '#FFD700',
+    ...Platform.select({ web: { textShadow: '0 0 4px rgba(255,215,0,0.8)' } }),
+  },
   timeWarning:  { color: '#FF4757' },
   vsText:       { color: '#333', fontSize: 14, fontWeight: 'bold' },
 
@@ -2423,6 +2604,34 @@ const styles = StyleSheet.create({
     ...Platform.select({
       web: { boxShadow: '0 0 10px 3px rgba(255,34,34,0.8)' },
       default: { shadowColor: '#FF2222', shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+    }),
+  },
+  puGlowWild: {
+    borderColor: '#FFFFFF',
+    ...Platform.select({
+      web: { boxShadow: '0 0 8px 2px rgba(255,255,255,0.75)' },
+      default: { shadowColor: '#FFFFFF', shadowOpacity: 0.9, shadowRadius: 7, shadowOffset: { width: 0, height: 0 } },
+    }),
+  },
+  puGlowLightning: {
+    borderColor: '#FFE033',
+    ...Platform.select({
+      web: { boxShadow: '0 0 8px 2px rgba(255,224,51,0.8)' },
+      default: { shadowColor: '#FFE033', shadowOpacity: 0.9, shadowRadius: 7, shadowOffset: { width: 0, height: 0 } },
+    }),
+  },
+  puGlowMultiplier: {
+    borderColor: '#FFD700',
+    ...Platform.select({
+      web: { boxShadow: '0 0 10px 3px rgba(255,215,0,0.85)' },
+      default: { shadowColor: '#FFD700', shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+    }),
+  },
+  puGlowColorbomb: {
+    borderColor: '#E040FB',
+    ...Platform.select({
+      web: { boxShadow: '0 0 10px 3px rgba(224,64,251,0.8)' },
+      default: { shadowColor: '#E040FB', shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
     }),
   },
 

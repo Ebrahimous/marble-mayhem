@@ -283,8 +283,19 @@ export function resolveMatches(board) {
       const cell = current[MAIN_ROW][c];
       if (!cell) { c++; continue; }
 
+      // Wild balls match any colour — find the effective type from the first
+      // non-wild ball in the run, then extend through any cell that is either
+      // that type or wild.
+      let effectiveType = cell.type === 'wild' ? null : cell.type;
       let end = c + 1;
-      while (end < COLS && current[MAIN_ROW][end]?.type === cell.type) end++;
+      while (end < COLS) {
+        const next = current[MAIN_ROW][end];
+        if (!next) break;
+        if (next.type === 'wild') { end++; continue; }
+        if (effectiveType === null) { effectiveType = next.type; end++; continue; }
+        if (next.type === effectiveType) { end++; continue; }
+        break;
+      }
 
       const size = end - c;
       if (size >= MATCH_MIN) {
@@ -335,8 +346,16 @@ export function resolveMatchesRelax(board) {
       const cell = current[MAIN_ROW][c];
       if (!cell) { c++; continue; }
 
+      let effectiveType = cell.type === 'wild' ? null : cell.type;
       let end = c + 1;
-      while (end < COLS && current[MAIN_ROW][end]?.type === cell.type) end++;
+      while (end < COLS) {
+        const next = current[MAIN_ROW][end];
+        if (!next) break;
+        if (next.type === 'wild') { end++; continue; }
+        if (effectiveType === null) { effectiveType = next.type; end++; continue; }
+        if (next.type === effectiveType) { end++; continue; }
+        break;
+      }
 
       const size = end - c;
       if (size >= MATCH_MIN) {
