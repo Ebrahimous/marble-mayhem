@@ -1554,6 +1554,7 @@ export default function GameScreen({ navigation, route }) {
   const [showNameEntry, setShowNameEntry] = useState(false);
   const [lbName, setLbName] = useState('');
   const [lbSaved, setLbSaved] = useState(false);
+  const [lbSaveError, setLbSaveError] = useState(null);
 
   // Pre-fill player name from last saved entry
   useEffect(() => {
@@ -1565,7 +1566,9 @@ export default function GameScreen({ navigation, route }) {
     if (!state.gameOver) {
       setShowNameEntry(false);
       setLbSaved(false);
-      setLbName('');
+      setLbSaveError(null);
+      // Re-load saved name instead of blanking it, so it's pre-filled each game
+      AsyncStorage.getItem('lbPlayerName').then(v => setLbName(v || ''));
     }
   }, [state.gameOver]);
 
@@ -1674,11 +1677,16 @@ export default function GameScreen({ navigation, route }) {
   const saveToLeaderboard = useCallback(async () => {
     const score = stateRef.current.scores[0];
     const name = lbName.trim() || 'Player';
-    await saveScore(`${mode}-${ballCount}`, name, score);
-    AsyncStorage.setItem('lbPlayerName', name); // remember for next time
-    setShowNameEntry(false);
-    setLbSaved(true);
-    sfx.playClick();
+    setLbSaveError(null);
+    try {
+      await saveScore(`${mode}-${ballCount}`, name, score);
+      AsyncStorage.setItem('lbPlayerName', name); // remember for next time
+      setShowNameEntry(false);
+      setLbSaved(true);
+      sfx.playClick();
+    } catch (e) {
+      setLbSaveError(`Could not save: ${e?.code ?? e?.message ?? 'unknown error'}`);
+    }
   }, [lbName, mode]);
 
   // ── Sound effects: matches, chains, penalties, game over ─────────────────────
@@ -1698,7 +1706,11 @@ export default function GameScreen({ navigation, route }) {
     const score = state.scores[0];
     scoreQualifies(`${mode}-${ballCount}`, score)
       .then(qualifies => { if (qualifies) setShowNameEntry(true); })
-      .catch(() => {}); // silently skip prompt if offline
+      .catch(() => {
+        // Firestore unavailable — still show prompt if score is non-zero
+        // so the player can at least try to save (save will show an error if it fails)
+        if (score > 0) setShowNameEntry(true);
+      });
   }, [state.gameOver]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -1999,6 +2011,9 @@ export default function GameScreen({ navigation, route }) {
               <TouchableOpacity style={styles.nameSaveBtn} onPress={saveToLeaderboard}>
                 <Text style={styles.nameSaveBtnTxt}>Save to Leaderboard</Text>
               </TouchableOpacity>
+              {lbSaveError && (
+                <Text style={styles.lbSaveErrorTxt}>{lbSaveError}</Text>
+              )}
               <TouchableOpacity onPress={() => { sfx.playClick(); setShowNameEntry(false); }}>
                 <Text style={styles.nameSkipTxt}>Skip</Text>
               </TouchableOpacity>
@@ -2463,6 +2478,12 @@ const styles = StyleSheet.create({
     color: '#333',
     fontSize: 13,
     paddingVertical: 4,
+  },
+  lbSaveErrorTxt: {
+    color: '#FF6B6B',
+    fontSize: 12,
+    marginTop: 6,
+    textAlign: 'center',
   },
   lbSavedTxt: {
     color: '#2ED573',
