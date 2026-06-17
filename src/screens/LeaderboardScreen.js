@@ -18,7 +18,6 @@ import { fetchLeaderboard } from '../firebase';
 export const LEADERBOARD_MODES = [
   { key: 'mayhem',      label: 'MAYHEM',      icon: '💥' },
   { key: 'solo-time',   label: 'TIME ATTACK', icon: '⏱️' },
-  { key: 'relax',       label: 'ZEN',         icon: '♾️' },
   { key: 'solo-normal', label: 'CHALLENGE',   icon: '⚔️' },
 ];
 
