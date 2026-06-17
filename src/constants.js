@@ -58,7 +58,7 @@ export const { cellSize: CELL_SIZE, boardPx: BOARD_PX } = getBoardMetrics(width)
 export const BALL_COLORS = {
   red:    '#E24B4A',
   blue:   '#378ADD',
-  green:  '#639922',
+  green:  '#4CAF28',
   amber:  '#EF9F27',
   purple: '#9B2FCF',
   teal:   '#C0C8D8',
