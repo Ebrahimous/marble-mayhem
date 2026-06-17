@@ -221,7 +221,7 @@ function applySlide(state, playerIdx, slidedBoard) {
       delete newPowerUps[idStr]; // consume this power-up
 
       if (pu.type === 'freeze') {
-        freezeLeft = 5; // pause the countdown for 5 s
+        freezeLeft += 5; // pause the countdown for 5 s
 
       } else if (pu.type === 'bomb') {
         const { row: br, col: bc } = puPos[idStr];
@@ -250,7 +250,7 @@ function applySlide(state, playerIdx, slidedBoard) {
                 const chainPu = newPowerUps[ball.id];
                 delete newPowerUps[ball.id]; // consume it
                 if (chainPu.type === 'freeze') {
-                  freezeLeft = 5; // freeze power-up caught in blast → activates
+                  freezeLeft += 5; // freeze power-up caught in blast → activates
                 } else if (chainPu.type === 'bomb') {
                   blastQueue.push({ row: r, col: c }); // chain explosion
                 } else if (chainPu.type === 'tbomb') {
