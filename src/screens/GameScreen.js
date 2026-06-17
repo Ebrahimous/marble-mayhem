@@ -933,13 +933,13 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
     }
 
     // ── Power-up overlay node ──────────────────────────────────────────────
-    // Timed bomb: 💣 icon with countdown number overlaid, colour-coded by
+    // Timed bomb: 💀 icon with countdown number overlaid, colour-coded by
     // urgency. Other types: single icon symbol.
     const puNode = pu ? (
       <View style={styles.puOverlay} pointerEvents="none">
         {pu.type === 'tbomb' ? (
           <View style={styles.tbombBadge}>
-            <Text style={{ fontSize: cellSize * 0.52 }}>💣</Text>
+            <Text style={{ fontSize: cellSize * 0.52 }}>💀</Text>
             <Text style={[
               styles.tbombCount,
               { fontSize: cellSize * 0.30 },
@@ -1674,7 +1674,7 @@ export default function GameScreen({ navigation, route }) {
   const saveToLeaderboard = useCallback(async () => {
     const score = stateRef.current.scores[0];
     const name = lbName.trim() || 'Player';
-    await saveScore(mode, name, score);
+    await saveScore(`${mode}-${ballCount}`, name, score);
     AsyncStorage.setItem('lbPlayerName', name); // remember for next time
     setShowNameEntry(false);
     setLbSaved(true);
@@ -1696,7 +1696,7 @@ export default function GameScreen({ navigation, route }) {
   useEffect(() => {
     if (!state.gameOver || !isSolo) return;
     const score = state.scores[0];
-    scoreQualifies(mode, score)
+    scoreQualifies(`${mode}-${ballCount}`, score)
       .then(qualifies => { if (qualifies) setShowNameEntry(true); })
       .catch(() => {}); // silently skip prompt if offline
   }, [state.gameOver]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1943,7 +1943,7 @@ export default function GameScreen({ navigation, route }) {
             <>
               <Text style={styles.goTitle}>
                 {(mode === 'solo-time' || mode === 'mayhem')
-                ? (mayhemOverReason === 'bomb' ? '💣  BOMB EXPLODED!' : "⏰  TIME'S UP!")
+                ? (mayhemOverReason === 'bomb' ? '💀  BOMB EXPLODED!' : "⏰  TIME'S UP!")
                 : '🔒  STUCK!'}
               </Text>
 
@@ -2316,7 +2316,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
 
-  // Timed-bomb badge: 💣 emoji with countdown number overlaid
+  // Timed-bomb badge: 💀 emoji with countdown number overlaid
   tbombBadge: {
     alignItems: 'center',
     justifyContent: 'center',
