@@ -39,34 +39,52 @@ const db  = getFirestore(app);
 // Each mode gets its own collection — avoids needing a composite index.
 // e.g. "leaderboard_mayhem", "leaderboard_solo-time", etc.
 const TOP_N = 10;
+// Fetch extra docs so deduplication still yields TOP_N unique names
+const FETCH_N = TOP_N * 5;
 
 function lbCollection(mode) {
   return collection(db, `leaderboard_${mode}`);
 }
 
 /**
- * Fetch the top-N scores for a given mode, sorted highest first.
- * Returns an array of { name, score, date } objects.
+ * Deduplicate entries, keeping only the highest score per player name.
+ * Returns the top TOP_N unique players, sorted by score descending.
  */
-export async function fetchLeaderboard(mode) {
-  const q = query(lbCollection(mode), orderBy('score', 'desc'), limit(TOP_N));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => {
+function dedupeByName(docs) {
+  const best = new Map(); // name → { name, score, date }
+  for (const d of docs) {
     const { name, score, date } = d.data();
-    return { name, score, date };
-  });
+    const key = (name || 'Player').trim().toLowerCase();
+    if (!best.has(key) || score > best.get(key).score) {
+      best.set(key, { name: name || 'Player', score, date });
+    }
+  }
+  return [...best.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, TOP_N);
 }
 
 /**
- * Returns true if `score` would appear in the top-N for `mode`.
+ * Fetch the top-N scores for a given mode, sorted highest first.
+ * Each player name appears at most once (their personal best).
+ */
+export async function fetchLeaderboard(mode) {
+  const q = query(lbCollection(mode), orderBy('score', 'desc'), limit(FETCH_N));
+  const snap = await getDocs(q);
+  return dedupeByName(snap.docs);
+}
+
+/**
+ * Returns true if `score` would appear in the top-N for `mode`
+ * (accounting for per-player deduplication).
  */
 export async function scoreQualifies(mode, score) {
   if (score <= 0) return false;
-  const q = query(lbCollection(mode), orderBy('score', 'desc'), limit(TOP_N));
+  const q = query(lbCollection(mode), orderBy('score', 'desc'), limit(FETCH_N));
   const snap = await getDocs(q);
-  if (snap.size < TOP_N) return true;
-  const lowest = snap.docs[snap.size - 1].data().score;
-  return score > lowest;
+  const unique = dedupeByName(snap.docs);
+  if (unique.length < TOP_N) return true;
+  return score > unique[unique.length - 1].score;
 }
 
 /**
