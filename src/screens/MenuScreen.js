@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity,
-  StyleSheet, Modal, ScrollView,
+  View, Text, TouchableOpacity, Animated,
+  StyleSheet, Modal, ScrollView, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,17 @@ export default function MenuScreen({ navigation }) {
   const [soundOn, setSoundOn] = useState(true);
   const [hapticsOn, setHapticsOn] = useState(true);
   const [aiDifficulty, setAiDifficulty] = useState(DEFAULT_AI_DIFFICULTY);
+
+  // Pulsing glow on the PLAY button — starts immediately, runs forever
+  const playPulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(playPulse, { toValue: 1, duration: 900, useNativeDriver: false }),
+      Animated.timing(playPulse, { toValue: 0, duration: 900, useNativeDriver: false }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem('ballCount').then(v => v && setBallCount(parseInt(v, 10)));
@@ -149,17 +160,22 @@ export default function MenuScreen({ navigation }) {
       <View style={styles.btnGroup}>
         <Text style={styles.modeTitle}>SELECT MODE</Text>
 
-        <TouchableOpacity
-          style={[styles.modeBtn, styles.modeBtnSolo, styles.modeBtnCentered]}
-          onPress={() => { sfx.playClick(); setSolo(true); }}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.modeBtnIcon}>🎯</Text>
-          <View style={styles.modeBtnTextCentered}>
-            <Text style={[styles.modeBtnLabel, styles.modeBtnTextCenter]}>START</Text>
-            <Text style={[styles.modeBtnSub, styles.modeBtnTextCenter]}>Time Attack or Challenge</Text>
-          </View>
-        </TouchableOpacity>
+        <Animated.View style={[styles.playBtnGlow, {
+          shadowOpacity: playPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] }),
+          ...Platform.select({ web: {
+            boxShadow: playPulse.interpolate
+              ? undefined   // interpolated boxShadow not supported on web — use static
+              : '0 0 24px 8px rgba(46,213,115,0.6)',
+          }}),
+        }]}>
+          <TouchableOpacity
+            style={styles.playBtn}
+            onPress={() => { sfx.playClick(); setSolo(true); }}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.playBtnText}>▶  PLAY</Text>
+          </TouchableOpacity>
+        </Animated.View>
 
         {/* VS COMPUTER and 2 PLAYERS modes are hidden for now — all work is
             focused on solo mode. Re-enable by flipping SHOW_MULTIPLAYER_MODES
@@ -517,6 +533,33 @@ const styles = StyleSheet.create({
   modeBtnSolo: {
     backgroundColor: '#2ED573',
     shadowColor: '#2ED573',
+  },
+
+  // ── PLAY button ──────────────────────────────────────────────────────────
+  playBtnGlow: {
+    width: '100%',
+    borderRadius: 18,
+    marginBottom: 16,
+    shadowColor: '#2ED573',
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 18,
+    elevation: 10,
+    ...Platform.select({ web: { boxShadow: '0 0 22px 6px rgba(46,213,115,0.55)' } }),
+  },
+  playBtn: {
+    backgroundColor: '#2ED573',
+    borderRadius: 18,
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  playBtnText: {
+    color: '#0D1A12',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 6,
+    ...Platform.select({ web: { textShadow: '0 1px 0 rgba(255,255,255,0.2)' } }),
   },
   modeBtnSelected: {
     borderWidth: 2,
