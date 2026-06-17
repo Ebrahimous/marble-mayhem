@@ -1522,6 +1522,11 @@ export default function GameScreen({ navigation, route }) {
   const [lbName, setLbName] = useState('');
   const [lbSaved, setLbSaved] = useState(false);
 
+  // Pre-fill player name from last saved entry
+  useEffect(() => {
+    AsyncStorage.getItem('lbPlayerName').then(v => { if (v) setLbName(v); });
+  }, []);
+
   // Reset name-entry state when a new game starts
   useEffect(() => {
     if (!state.gameOver) {
@@ -1635,7 +1640,9 @@ export default function GameScreen({ navigation, route }) {
   // ── Leaderboard save ─────────────────────────────────────────────────────────
   const saveToLeaderboard = useCallback(async () => {
     const score = stateRef.current.scores[0];
-    await saveScore(mode, lbName, score);
+    const name = lbName.trim() || 'Player';
+    await saveScore(mode, name, score);
+    AsyncStorage.setItem('lbPlayerName', name); // remember for next time
     setShowNameEntry(false);
     setLbSaved(true);
     sfx.playClick();
