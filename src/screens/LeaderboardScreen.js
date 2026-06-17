@@ -1,10 +1,14 @@
 /**
- * LeaderboardScreen.js — all-modes leaderboard shown side by side
+ * LeaderboardScreen.js — per-mode top-10 leaderboard
+ *
+ * Reads `leaderboard_<mode>` entries from AsyncStorage (written by
+ * GameScreen when a game ends and the player opts to save their score).
+ * Each entry: { name: string, score: number, date: string (ISO date) }.
  */
 
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,89 +24,29 @@ export const LEADERBOARD_MODES = [
 const RANK_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
 const RANK_LABELS = ['🥇', '🥈', '🥉'];
 
-function ModeColumn({ modeKey, label, icon, entries, loading, error }) {
-  return (
-    <View style={styles.column}>
-      {/* Column header */}
-      <View style={styles.colHeader}>
-        <Text style={styles.colIcon}>{icon}</Text>
-        <Text style={styles.colTitle}>{label}</Text>
-      </View>
-
-      {/* Column rows */}
-      <View style={styles.colBody}>
-        {/* Header row */}
-        <View style={styles.row}>
-          <Text style={[styles.rankCell, styles.dimTxt]}>#</Text>
-          <Text style={[styles.nameCell, styles.dimTxt]}>NAME</Text>
-          <Text style={[styles.scoreCell, styles.dimTxt]}>SCORE</Text>
-        </View>
-
-        {loading ? (
-          <View style={styles.colEmpty}>
-            <ActivityIndicator size="small" color="#444" />
-          </View>
-        ) : error ? (
-          <View style={styles.colEmpty}>
-            <Text style={styles.colErrorTxt}>{error}</Text>
-          </View>
-        ) : entries.length === 0 ? (
-          <View style={styles.colEmpty}>
-            <Text style={styles.colEmptyTxt}>No scores yet</Text>
-          </View>
-        ) : (
-          entries.map((entry, i) => (
-            <View
-              key={i}
-              style={[styles.row, styles.entryRow, i % 2 === 0 && styles.entryRowEven]}
-            >
-              <Text style={[
-                styles.rankCell,
-                i < 3 && { color: RANK_COLORS[i], fontSize: 16 },
-              ]}>
-                {i < 3 ? RANK_LABELS[i] : i + 1}
-              </Text>
-              <Text style={[styles.nameCell, styles.entryName]} numberOfLines={1}>
-                {entry.name || 'Player'}
-              </Text>
-              <Text style={[styles.scoreCell, styles.entryScore]}>
-                {entry.score.toLocaleString()}
-              </Text>
-            </View>
-          ))
-        )}
-      </View>
-    </View>
-  );
-}
-
 export default function LeaderboardScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const [boards, setBoards]     = useState({});
-  const [loadingSet, setLoadingSet] = useState({});
-  const [errors, setErrors]     = useState({});
+  const [activeMode, setActiveMode] = useState(LEADERBOARD_MODES[0].key);
+  const [boards, setBoards]   = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState(null);
 
+  // Reload scores for the active mode whenever it changes or screen focuses
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      // Load all modes in parallel
-      LEADERBOARD_MODES.forEach(({ key }) => {
-        setLoadingSet(prev => ({ ...prev, [key]: true }));
-        setErrors(prev => ({ ...prev, [key]: null }));
-        fetchLeaderboard(key)
-          .then(entries => {
-            if (!cancelled) setBoards(prev => ({ ...prev, [key]: entries }));
-          })
-          .catch(err => {
-            if (!cancelled) setErrors(prev => ({ ...prev, [key]: err?.code ?? err?.message ?? 'Error' }));
-          })
-          .finally(() => {
-            if (!cancelled) setLoadingSet(prev => ({ ...prev, [key]: false }));
-          });
-      });
+      setLoading(true);
+      setError(null);
+      fetchLeaderboard(activeMode)
+        .then(entries => { if (!cancelled) { setBoards(prev => ({ ...prev, [activeMode]: entries })); } })
+        .catch(err => { if (!cancelled) setError(`Error: ${err?.code ?? err?.message ?? String(err)}`); })
+        .finally(() => { if (!cancelled) setLoading(false); });
       return () => { cancelled = true; };
-    }, [])
+    }, [activeMode])
   );
+
+  const entries = boards[activeMode] ?? [];
+  const activeLabel = LEADERBOARD_MODES.find(m => m.key === activeMode)?.label ?? '';
 
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -119,26 +63,78 @@ export default function LeaderboardScreen({ navigation }) {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Three columns */}
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.columnsWrap}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.columns}>
-          {LEADERBOARD_MODES.map(({ key, label, icon }) => (
-            <ModeColumn
-              key={key}
-              modeKey={key}
-              label={label}
-              icon={icon}
-              entries={boards[key] ?? []}
-              loading={!!loadingSet[key]}
-              error={errors[key]}
-            />
-          ))}
+      {/* Mode tabs */}
+      <View style={styles.tabs}>
+        {LEADERBOARD_MODES.map(m => (
+          <TouchableOpacity
+            key={m.key}
+            style={[styles.tab, activeMode === m.key && styles.tabActive]}
+            onPress={() => { sfx.playClick(); setActiveMode(m.key); }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.tabIcon}>{m.icon}</Text>
+            <Text style={[styles.tabLabel, activeMode === m.key && styles.tabLabelActive]}>
+              {m.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Entries list */}
+      {loading ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyIcon}>⏳</Text>
+          <Text style={styles.emptyText}>Loading scores…</Text>
         </View>
-      </ScrollView>
+      ) : error ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyIcon}>⚠️</Text>
+          <Text style={styles.emptyText}>{error}</Text>
+        </View>
+      ) : entries.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyIcon}>📭</Text>
+          <Text style={styles.emptyText}>No scores yet for {activeLabel}.</Text>
+          <Text style={styles.emptyHint}>Play a game to get on the board!</Text>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Column headers */}
+          <View style={styles.row}>
+            <Text style={[styles.cell, styles.cellRank, styles.colHeader]}>#</Text>
+            <Text style={[styles.cell, styles.cellName, styles.colHeader]}>NAME</Text>
+            <Text style={[styles.cell, styles.cellScore, styles.colHeader]}>SCORE</Text>
+            <Text style={[styles.cell, styles.cellDate, styles.colHeader]}>DATE</Text>
+          </View>
+
+          {entries.map((entry, i) => (
+            <View
+              key={i}
+              style={[styles.row, styles.entryRow, i % 2 === 0 && styles.entryRowEven]}
+            >
+              <Text style={[
+                styles.cell, styles.cellRank,
+                i < 3 && { color: RANK_COLORS[i], fontSize: 20 },
+              ]}>
+                {i < 3 ? RANK_LABELS[i] : i + 1}
+              </Text>
+              <Text style={[styles.cell, styles.cellName, styles.entryName]} numberOfLines={1}>
+                {entry.name || 'Player'}
+              </Text>
+              <Text style={[styles.cell, styles.cellScore, styles.entryScore]}>
+                {entry.score.toLocaleString()}
+              </Text>
+              <Text style={[styles.cell, styles.cellDate, styles.entryDate]}>
+                {entry.date ?? ''}
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
+      )}
 
     </View>
   );
@@ -173,55 +169,122 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
 
-  columnsWrap: { padding: 10 },
-  columns: {
+  // Mode tabs
+  tabs: {
     flexDirection: 'row',
-    gap: 8,
-    alignItems: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1A38',
+    gap: 6,
   },
-
-  // Individual mode column
-  column: {
+  tab: {
     flex: 1,
-    borderRadius: 10,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#1A1A38',
     backgroundColor: '#0D0D22',
-    overflow: 'hidden',
   },
-  colHeader: {
+  tabActive: {
+    backgroundColor: '#1E1E44',
+    borderColor: '#FFD700',
+  },
+  tabIcon:  { fontSize: 16 },
+  tabLabel: { color: '#444', fontSize: 9, fontWeight: 'bold', letterSpacing: 1, marginTop: 2 },
+  tabLabelActive: { color: '#FFD700' },
+
+  // Empty state
+  empty: {
+    flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1A1A38',
-    backgroundColor: '#13132B',
+    justifyContent: 'center',
   },
-  colIcon:  { fontSize: 20, marginBottom: 2 },
-  colTitle: { color: '#FFD700', fontSize: 10, fontWeight: 'bold', letterSpacing: 1.5 },
+  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyText: { color: '#666', fontSize: 16, marginBottom: 6 },
+  emptyHint: { color: '#333', fontSize: 13 },
 
-  colBody: { paddingHorizontal: 6, paddingBottom: 10 },
+  // Entry list
+  list: { flex: 1 },
+  listContent: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 24 },
 
-  colEmpty: {
-    paddingVertical: 32,
-    alignItems: 'center',
-  },
-  colEmptyTxt: { color: '#333', fontSize: 12 },
-  colErrorTxt: { color: '#553333', fontSize: 11, textAlign: 'center' },
-
-  // Rows
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
-  entryRow: { borderRadius: 6, paddingHorizontal: 2 },
-  entryRowEven: { backgroundColor: 'rgba(255,255,255,0.03)' },
+  entryRow: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+  },
+  entryRowEven: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
 
-  rankCell:  { width: 28, textAlign: 'center', fontWeight: 'bold', fontSize: 12, color: '#666' },
-  nameCell:  { flex: 1, paddingHorizontal: 4, color: '#999', fontSize: 11 },
-  scoreCell: { width: 56, textAlign: 'right', color: '#999', fontSize: 11 },
+  cell: { color: '#999' },
+  cellRank:  { width: 40, textAlign: 'center', fontWeight: 'bold', fontSize: 14 },
+  cellName:  { flex: 1, paddingHorizontal: 8 },
+  cellScore: { width: 90, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  cellDate:  { width: 78, textAlign: 'right', marginLeft: 8 },
 
-  dimTxt:     { color: '#2A2A4A', fontSize: 9, fontWeight: 'bold', letterSpacing: 0.8 },
-  entryName:  { color: '#BBB', fontSize: 12 },
-  entryScore: { color: '#FFD700', fontSize: 12, fontWeight: 'bold' },
+  colHeader: { color: '#333', fontSize: 10, letterSpacing: 1 },
+
+  entryName:  { color: '#CCC', fontSize: 15 },
+  entryScore: { color: '#FFD700', fontSize: 16, fontWeight: 'bold' },
+  entryDate:  { color: '#444', fontSize: 12 },
+
+  // Clear button
+  clearBtn: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    marginTop: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#332233',
+    alignItems: 'center',
+  },
+  clearBtnTxt: { color: '#553355', fontSize: 13 },
+
+  // Confirm modal
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  confirmSheet: {
+    backgroundColor: '#13132B',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1E1E44',
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+  },
+  confirmTitle: { color: '#FFD700', fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
+  confirmMsg:   { color: '#888', fontSize: 14, textAlign: 'center', marginBottom: 24 },
+  confirmYes: {
+    backgroundColor: '#8B0000',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    marginBottom: 10,
+    width: '100%',
+    alignItems: 'center',
+  },
+  confirmYesTxt: { color: '#FFF', fontSize: 15, fontWeight: 'bold' },
+  confirmNo: {
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    width: '100%',
+    alignItems: 'center',
+  },
+  confirmNoTxt: { color: '#666', fontSize: 15 },
 });
