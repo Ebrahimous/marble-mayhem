@@ -49,6 +49,7 @@ import {
 
 import BallView from '../components/BallView';
 import * as sfx from '../sounds';
+import * as haptics from '../haptics';
 import { scoreQualifies, saveScore } from '../firebase';
 
 // ── Initial state ─────────────────────────────────────────────────────────────
@@ -1702,8 +1703,10 @@ export default function GameScreen({ navigation, route }) {
     if (!state.lastMatch) return;
     if (state.lastMatch.chains > 1) {
       sfx.playChain(state.lastMatch.chains);
+      haptics.vibrateChain();
     } else {
       sfx.playMatch();
+      haptics.vibrateMatch();
     }
     if (!isSolo) sfx.playPenalty();
   }, [state.lastMatch]);
@@ -1723,6 +1726,7 @@ export default function GameScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!state.gameOver) return;
+    haptics.vibrateGameOver();
     if (isSolo) {
       sfx.playRoundEnd();
     } else if (state.winner === null) {
@@ -1755,6 +1759,7 @@ export default function GameScreen({ navigation, route }) {
     if (lastBombBlast && lastBombBlast.id !== prevBombBlastIdRef.current) {
       prevBombBlastIdRef.current = lastBombBlast.id;
       sfx.playBomb();
+      haptics.vibratePowerUp();
     }
   }, [lastBombBlast]);
 
@@ -1764,14 +1769,48 @@ export default function GameScreen({ navigation, route }) {
     if (lastTbombDefuse > prevTbombDefuseRef.current) {
       prevTbombDefuseRef.current = lastTbombDefuse;
       sfx.playTbombDefuse();
+      haptics.vibratePowerUp();
     }
   }, [lastTbombDefuse]);
+
+  // ── Score pop animation ───────────────────────────────────────────────────────
+  const scorePop = useRef(new Animated.Value(1)).current;
+  const prevScoreRef = useRef(0);
+  useEffect(() => {
+    const s = scores[0];
+    if (s > prevScoreRef.current) {
+      Animated.sequence([
+        Animated.timing(scorePop, { toValue: 1.45, duration: 110, useNativeDriver: true }),
+        Animated.timing(scorePop, { toValue: 1.0,  duration: 160, useNativeDriver: true }),
+      ]).start();
+    }
+    prevScoreRef.current = s;
+  }, [scores[0]]);
+  // ── Chain popup animation ─────────────────────────────────────────────────────
+  const chainPopOpacity = useRef(new Animated.Value(0)).current;
+  const chainPopScale   = useRef(new Animated.Value(0.5)).current;
+  const [chainPopLabel, setChainPopLabel] = useState('');
+  useEffect(() => {
+    if (!state.lastMatch || state.lastMatch.chains <= 1) return;
+    const n = state.lastMatch.chains;
+    setChainPopLabel(`CHAIN ×${n}!`);
+    chainPopOpacity.setValue(0);
+    chainPopScale.setValue(0.5);
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(chainPopOpacity, { toValue: 1,   duration: 120, useNativeDriver: true }),
+        Animated.spring(chainPopScale,   { toValue: 1.0, speed: 18, bounciness: 10, useNativeDriver: true }),
+      ]),
+      Animated.delay(700),
+      Animated.timing(chainPopOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start();
+  }, [state.lastMatch]);
 
   const p2Label = mode === 'ai' ? 'CPU' : 'P2';
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <View style={{ flex: 1, backgroundColor: '#080815' }}>
+    <View style={{ flex: 1, backgroundColor: '#080815', ...Platform.select({ web: { background: 'radial-gradient(ellipse at 50% 45%, #14143A 0%, #080815 68%)' } }) }}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[
@@ -1791,7 +1830,7 @@ export default function GameScreen({ navigation, route }) {
             <>
               <View style={styles.scoreBlock}>
                 <Text style={styles.scoreLabel}>SCORE</Text>
-                <Text style={styles.scoreVal}>{scores[0]}</Text>
+                <Animated.Text style={[styles.scoreVal, { transform: [{ scale: scorePop }] }]}>{scores[0]}</Animated.Text>
               </View>
 
               {(mode === 'solo-time' || mode === 'mayhem') && (
@@ -2276,9 +2315,9 @@ const styles = StyleSheet.create({
   cell: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: '#0C0C24',
     borderWidth: 0.5,
-    borderColor: '#171730',
+    borderColor: '#1E1E42',
   },
   mainCell: {
     borderColor: '#3A2000',
@@ -2415,6 +2454,27 @@ const styles = StyleSheet.create({
     ...Platform.select({
       web: { textShadow: '0 0 8px rgba(125,249,255,0.9)' },
       default: {},
+    }),
+  },
+
+  chainPopOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 60,
+    pointerEvents: 'none',
+  },
+  chainPopText: {
+    color: '#5FE0FF',
+    fontSize: 42,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+    textShadowColor: 'rgba(95,224,255,0.9)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 20,
+    ...Platform.select({
+      web: { textShadow: '0 0 24px rgba(95,224,255,0.95), 0 0 48px rgba(95,224,255,0.5)' },
     }),
   },
 

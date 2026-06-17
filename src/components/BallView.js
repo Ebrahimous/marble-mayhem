@@ -1,13 +1,13 @@
 /**
- * BallView.js — flat-style ball renderer
+ * BallView.js — glossy marble renderer
  *
- * Flat single-fill circles (matches marbles_template_1.svg), with a thin
- * dark outline so balls stay readable against any cell background —
- * notably the yellow main-row background, where lighter ball colours
- * (e.g. amber) would otherwise blend in.
+ * Each ball is a filled circle with a thin dark outline, plus a small
+ * white ellipse in the upper-left quadrant to simulate a glass-marble
+ * specular highlight. The highlight is rendered as an absolutely-positioned
+ * child View so it works on both web and native without SVG.
  */
 import React from 'react';
-import { View } from 'react-native';
+import { View, Platform } from 'react-native';
 import { BALL_COLORS } from '../constants';
 
 const BallView = React.memo(({ type, size }) => {
@@ -16,13 +16,8 @@ const BallView = React.memo(({ type, size }) => {
   }
   const color = BALL_COLORS[type] ?? '#888888'; // fallback for unknown types
   const d = size - 4;
-  return (
-    <View style={{
-      width: d, height: d, borderRadius: d / 2,
-      backgroundColor: color, margin: 2,
-      borderWidth: 1.5, borderColor: '#0A0A14',
-    }} />
-  );
-});
-
-export default BallView;
+  // Shine ellipse sizing — scales with ball diameter
+  const shineW = Math.round(d * 0.30);
+  const shineH = Math.round(d * 0.18);
+  // Offset from top-left of the ball circle
+ 

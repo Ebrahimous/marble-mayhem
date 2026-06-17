@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import BallView from '../components/BallView';
 import { CELL_SIZE, BALL_TYPES_5, BALL_TYPES_6, DEFAULT_AI_DIFFICULTY } from '../constants';
 import * as sfx from '../sounds';
+import * as haptics from '../haptics';
 
 // VS COMPUTER and 2 PLAYERS modes are hidden for now — current work is
 // focused entirely on solo mode. Flip to true to bring them back.
@@ -17,7 +18,7 @@ const SHOW_MULTIPLAYER_MODES = false;
 // Solo modes each keep their own high score (AsyncStorage key
 // `highScore_<mode>`), so a Zen Mode run doesn't overwrite a Time Attack or
 // Challenge best.
-const SOLO_MODES = ['solo-time', 'solo-normal', 'relax', 'mayhem'];
+const SOLO_MODES = ['solo-time', 'relax', 'mayhem'];
 
 export default function MenuScreen({ navigation }) {
   const insets    = useSafeAreaInsets();
@@ -29,12 +30,14 @@ export default function MenuScreen({ navigation }) {
   const [ballCount, setBallCount] = useState(5);
   const [tapToMove, setTapToMove] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
+  const [hapticsOn, setHapticsOn] = useState(true);
   const [aiDifficulty, setAiDifficulty] = useState(DEFAULT_AI_DIFFICULTY);
 
   useEffect(() => {
     AsyncStorage.getItem('ballCount').then(v => v && setBallCount(parseInt(v, 10)));
     AsyncStorage.getItem('tapToMove').then(v => setTapToMove(v === 'true'));
     AsyncStorage.getItem('soundMuted').then(v => setSoundOn(v !== 'true'));
+    AsyncStorage.getItem('hapticsEnabled').then(v => setHapticsOn(v !== 'false'));
     AsyncStorage.getItem('aiDifficulty').then(v => v && setAiDifficulty(v));
   }, []);
 
@@ -71,6 +74,14 @@ export default function MenuScreen({ navigation }) {
     const muted = sfx.toggleMuted();
     setSoundOn(!muted);
     sfx.playClick();
+  };
+
+  const toggleHaptics = () => {
+    sfx.playClick();
+    const next = !hapticsOn;
+    setHapticsOn(next);
+    haptics.setHapticsEnabled(next);
+    if (next) haptics.vibrateClick();
   };
 
   const play = (mode, extra = {}) => { sfx.playClick(); navigation.navigate('Game', { mode, ballCount, ...extra }); };
@@ -282,6 +293,27 @@ export default function MenuScreen({ navigation }) {
               </View>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={toggleHaptics}
+              activeOpacity={0.8}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Haptic Feedback</Text>
+                <Text style={styles.settingDesc}>
+                  Vibration on matches, chains, and power-ups. Android only — not supported on iOS.
+                </Text>
+              </View>
+              <View style={styles.togglePill}>
+                <View style={[styles.toggleOption, !hapticsOn && styles.toggleOptionActive]}>
+                  <Text style={[styles.toggleOptionTxt, !hapticsOn && styles.toggleOptionTxtActive]}>OFF</Text>
+                </View>
+                <View style={[styles.toggleOption, hapticsOn && styles.toggleOptionActive]}>
+                  <Text style={[styles.toggleOptionTxt, hapticsOn && styles.toggleOptionTxtActive]}>ON</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+
             <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setSettings(false); }}>
               <Text style={styles.sheetCloseTxt}>Done</Text>
             </TouchableOpacity>
@@ -306,21 +338,6 @@ export default function MenuScreen({ navigation }) {
                 <Text style={styles.modeBtnSub}>1 minute · power-ups · timed bombs</Text>
                 {bestScores['mayhem'] > 0 && (
                   <Text style={styles.modeBtnBest}>Best: {bestScores['mayhem'].toLocaleString()}</Text>
-                )}
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modeBtn, styles.modeBtnAlt]}
-              onPress={() => { setSolo(false); play('solo-normal'); }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modeBtnIcon}>⚔️</Text>
-              <View>
-                <Text style={styles.modeBtnLabel}>CHALLENGE</Text>
-                <Text style={styles.modeBtnSub}>No time limit · play until stuck</Text>
-                {bestScores['solo-normal'] > 0 && (
-                  <Text style={styles.modeBtnBest}>Best: {bestScores['solo-normal'].toLocaleString()}</Text>
                 )}
               </View>
             </TouchableOpacity>
