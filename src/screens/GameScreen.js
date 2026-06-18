@@ -2020,12 +2020,6 @@ export default function GameScreen({ navigation, route }) {
                 <Animated.Text style={[styles.scoreVal, { transform: [{ scale: scorePop }] }]}>{scores[0]}</Animated.Text>
               </View>
 
-              {mode === 'relax' && (
-                <View style={styles.scoreBlock}>
-                  <Text style={styles.scoreLabel}>LEVEL</Text>
-                  <Text style={styles.scoreVal}>{zenLevel}</Text>
-                </View>
-              )}
 
               {(mode === 'solo-time' || mode === 'mayhem') && (
                 <View style={styles.scoreBlock}>
@@ -2098,7 +2092,7 @@ export default function GameScreen({ navigation, route }) {
 
         {mode === 'relax' && (
           <View style={styles.zenProgressRow}>
-            <Text style={styles.zenLevelTxt}>LV {zenLevel}</Text>
+            <Text style={styles.zenLevelTxt}>LEVEL {zenLevel}</Text>
             <View style={styles.zenBarTrack}>
               <View style={[styles.zenBarFill, { width: `${Math.round((zenXP / zenXPRequired) * 100)}%` }]} />
             </View>
@@ -2345,9 +2339,9 @@ const styles = StyleSheet.create({
 
   // 2× multiplier countdown bar (shown under TIME block in Mayhem)
   // ── Zen Mode progress bar ──────────────────────────────────────────────────
-  zenProgressRow:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 3, gap: 8, borderBottomWidth: 1, borderBottomColor: '#0D0D22' },
-  zenLevelTxt:     { color: '#2ED573', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, minWidth: 34 },
-  zenBarTrack:     { flex: 1, height: 7, backgroundColor: '#1A1A38', borderRadius: 4, overflow: 'hidden' },
+  zenProgressRow:  { flexDirection: 'column', paddingHorizontal: 12, paddingTop: 4, paddingBottom: 6, gap: 4, borderBottomWidth: 1, borderBottomColor: '#0D0D22' },
+  zenLevelTxt:     { color: '#2ED573', fontSize: 10, fontWeight: 'bold', letterSpacing: 1 },
+  zenBarTrack:     { width: '100%', height: 8, backgroundColor: '#1A1A38', borderRadius: 4, overflow: 'hidden' },
   zenBarFill:      { height: '100%', backgroundColor: '#2ED573', borderRadius: 4 },
   zenLevelReached: { color: '#2ED573', fontSize: 14, fontWeight: 'bold', textAlign: 'center', marginTop: 8, letterSpacing: 1 },
   goBtnEndSession: { borderColor: '#FF6B35', borderWidth: 1.5, backgroundColor: 'transparent' },
@@ -2787,3 +2781,4 @@ const styles = StyleSheet.create({
   },
 
 });
+                                                                                                                                                                                                                                                                           
