@@ -1,11 +1,6 @@
 /**
  * TutorialModal.js — animated 5-step game tutorial
- * Used in MenuScreen (How to Play) and GameScreen (first-run).
- *
- * Props:
- *   visible      {boolean}
- *   onClose      {(dontShow: boolean) => void}
- *   showDismiss  {boolean}  show "don't show again" checkbox (pre-game use)
+ * Props: visible, onClose(dontShow), showDismiss
  */
 
 import React, { useRef, useState, useEffect } from 'react';
@@ -14,92 +9,101 @@ import {
   Animated, Easing, Platform,
 } from 'react-native';
 
-// ── Board constants ────────────────────────────────────────────────────────────
 const CELL = 36;
 const GAP  = 3;
 const PAD  = 6;
-const CS   = CELL + GAP;   // cell step (px per column/row)
+const CS   = CELL + GAP;
 const COLS = 5;
 const ROWS = 7;
-const MR   = 3;            // main row index
-
+const MR   = 3;
 const BOARD_W = PAD * 2 + COLS * CS - GAP;
 const BOARD_H = PAD * 2 + ROWS * CS - GAP;
 
-// Game-accurate ball colours
 const CLR = {
-  R: '#E24B4A',
-  Y: '#EF9F27',
-  G: '#4CAF28',
-  B: '#378ADD',
-  P: '#9B2FCF',
+  R: '#F03333', Y: '#EF9F27', G: '#4CAF28', B: '#378ADD', P: '#9B2FCF',
 };
 
-// 7-row × 5-col board states, one per step
+// Power-ups shown in step 4 — one per column of the main row
+const PU4 = [
+  { icon: '❄',  glow: '#60CFFF' },
+  { icon: '💥', glow: '#FF6B35' },
+  { icon: '🌈', glow: '#FFFFFF' },
+  { icon: '⚡',  glow: '#FFE040' },
+  { icon: '×2', glow: '#FF69B4' },
+];
+const PU4_DESCS = [
+  '❄ Freeze — stops the timer for a few seconds.',
+  '💥 Bomb — blasts away all marbles in a 3×3 area.',
+  '🌈 Wild — matches any color in a run.',
+  '⚡ Lightning — clears an entire column instantly.',
+  '×2 Multiplier — doubles your score for several matches.',
+];
+
 const BOARDS = [
   [['B','G','Y','P','R'],['G','Y','P','B','Y'],['Y','B','G','G','P'],['B','R','G','Y','P'],['P','Y','G','R','B'],['B','P','Y','G','R'],['G','R','B','Y','P']],
   [['B','G','Y','P','R'],['G','Y','P','B','Y'],['Y','B','G','G','P'],['B','R','G','Y','P'],['P','Y','G','R','B'],['B','P','Y','G','R'],['G','R','B','Y','P']],
   [['B','G','Y','P','R'],['G','Y','P','B','Y'],['Y','B','G','G','P'],['B','R','G','Y','P'],['P','Y','G','R','B'],['B','P','Y','G','R'],['G','R','B','Y','P']],
   [['B','G','Y','P','R'],['G','Y','P','B','Y'],['Y','B','G','G','P'],['R','R','R','Y','P'],['P','Y','G','R','B'],['B','P','Y','G','R'],['G','R','B','Y','P']],
-  [[null,null,null,'P','R'],['B','G','Y','B','Y'],['G','Y','P','G','P'],['Y','Y','B','G','P'],['P','B','G','R','B'],['B','P','Y','G','R'],['G','R','B','Y','P']],
+  [['B','G','Y','P','R'],['G','Y','P','B','Y'],['Y','B','G','G','P'],['B','R','G','Y','P'],['P','Y','G','R','B'],['B','P','Y','G','R'],['G','R','B','Y','P']],
 ];
 
 const STEPS = [
-  {
-    title: 'The board',
-    body:  'A 5-column grid of colored marbles. The golden row in the middle is the match row — this is where everything happens.',
-  },
-  {
-    title: 'Push a column',
-    body:  'Swipe up or down on any column to shift all its marbles by one row. This moves marbles into and out of the match row.',
-  },
-  {
-    title: 'Slide the match row',
-    body:  'Swipe left or right on the middle row to slide all its marbles. The marble at the end wraps around. Line up same colors!',
-  },
-  {
-    title: 'Match 3 or more!',
-    body:  'When 3 or more same-colored marbles line up in the match row, they clear and you score. Bigger matches earn even more.',
-  },
-  {
-    title: 'Mayhem power-ups',
-    body:  'Mayhem spawns special balls: ❄ freezes the timer, 💥 blasts a 3×3 area, ⚡ clears a whole column, ×2 doubles your score, 🎨 clears all balls of one color.',
-  },
+  { title: 'The board',           body: 'A 5-column grid of colored marbles. The golden row in the middle is the match row — this is where everything happens.' },
+  { title: 'Push a column',       body: 'Swipe up or down on any column to shift all its marbles by one row, moving marbles into or out of the match row.' },
+  { title: 'Slide the match row', body: 'Swipe left or right to slide the match row. The marble at the end wraps around to the other side.' },
+  { title: 'Match 3 or more!',    body: 'When 3+ same-colored marbles line up in the match row, they clear and you score. Marbles above fall down to fill the gap.' },
+  { title: 'Mayhem power-ups',    body: '' },
 ];
 
-// ── Single marble ─────────────────────────────────────────────────────────────
-function TBall({ color }) {
+function TBall({ color, puIcon, puGlow, puActive }) {
   if (!color) return <View style={st.emptyBall} />;
   return (
-    <View style={[st.ball, { backgroundColor: CLR[color] || color }]}>
-      <View style={st.shine} />
+    <View style={{ width: CELL, height: CELL }}>
+      <View style={[st.ball, { backgroundColor: CLR[color] || color }]}>
+        <View style={st.shine} />
+        {puIcon ? (
+          <View style={st.puIconWrap} pointerEvents="none">
+            <Text style={st.puIconTxt}>{puIcon}</Text>
+          </View>
+        ) : null}
+      </View>
+      {puGlow ? (
+        <View style={[st.puRing, { borderColor: puGlow, borderWidth: puActive ? 3 : 2 }]}
+          pointerEvents="none" />
+      ) : null}
     </View>
   );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
 export default function TutorialModal({ visible, onClose, showDismiss = false }) {
-  const [step,     setStep]     = useState(0);
-  const [board,    setBoard]    = useState(BOARDS[0]);
-  const [dontShow, setDontShow] = useState(false);
+  const [step,         setStep]         = useState(0);
+  const [board,        setBoard]        = useState(BOARDS[0]);
+  const [dontShow,     setDontShow]     = useState(false);
+  const [matchVisible, setMatchVisible] = useState(false);
+  const [falling,      setFalling]      = useState(false);
+  const [puIndex,      setPuIndex]      = useState(0);
   const mounted  = useRef(true);
-  const busyRef  = useRef(false);
+  const genRef   = useRef(0);
   const pulseRef = useRef(null);
+  const puTimer  = useRef(null);
 
-  // Animated values ─────────────────────────────────────────────────────────
-  const hlOp    = useRef(new Animated.Value(0)).current;   // row highlight opacity
-  const hlPulse = useRef(new Animated.Value(0)).current;   // row border pulse (0→1)
-  const colHlOp = useRef(new Animated.Value(0)).current;   // col highlight opacity
-  const handOp  = useRef(new Animated.Value(0)).current;   // swipe indicator opacity
-  const handX   = useRef(new Animated.Value(0)).current;   // swipe indicator X offset
-  const handY   = useRef(new Animated.Value(0)).current;   // swipe indicator Y offset
-  const colY    = useRef(new Animated.Value(0)).current;   // col-2 overlay Y offset
-  const rowX    = useRef(new Animated.Value(0)).current;   // row overlay X offset
-  const rowOp   = useRef(new Animated.Value(1)).current;   // row overlay opacity
-  const matchOp = useRef(new Animated.Value(1)).current;   // match overlay opacity
-  const matchSc = useRef(new Animated.Value(1)).current;   // match overlay scale
-  const scoreOp = useRef(new Animated.Value(0)).current;   // "+150" opacity
-  const scoreY  = useRef(new Animated.Value(0)).current;   // "+150" Y offset
+  const hlOp    = useRef(new Animated.Value(0)).current;
+  const hlPulse = useRef(new Animated.Value(0)).current;
+  const colHlOp = useRef(new Animated.Value(0)).current;
+  const handOp  = useRef(new Animated.Value(0)).current;
+  const handX   = useRef(new Animated.Value(0)).current;
+  const handY   = useRef(new Animated.Value(0)).current;
+  const colY    = useRef(new Animated.Value(0)).current;
+  const rowX    = useRef(new Animated.Value(0)).current;
+  const matchOp = useRef(new Animated.Value(1)).current;
+  const matchSc = useRef(new Animated.Value(1)).current;
+  const scoreOp = useRef(new Animated.Value(0)).current;
+  const scoreY  = useRef(new Animated.Value(0)).current;
+  const fallY   = [
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+  ];
 
   useEffect(() => {
     mounted.current = true;
@@ -108,28 +112,30 @@ export default function TutorialModal({ visible, onClose, showDismiss = false })
 
   function resetAnims() {
     pulseRef.current?.stop();
-    hlOp.setValue(0);   hlPulse.setValue(0); colHlOp.setValue(0);
-    handOp.setValue(0); handX.setValue(0);   handY.setValue(0);
-    colY.setValue(0);
-    rowX.setValue(0);   rowOp.setValue(1);
+    clearInterval(puTimer.current);
+    hlOp.setValue(0); hlPulse.setValue(0); colHlOp.setValue(0);
+    handOp.setValue(0); handX.setValue(0); handY.setValue(0);
+    colY.setValue(0); rowX.setValue(0);
     matchOp.setValue(1); matchSc.setValue(1);
     scoreOp.setValue(0); scoreY.setValue(0);
+    fallY[0].setValue(0); fallY[1].setValue(0); fallY[2].setValue(0);
+    setMatchVisible(false);
+    setFalling(false);
+    setPuIndex(0);
   }
 
-  const anim = (animation) => new Promise(res => animation.start(() => res()));
-  const wait = (ms)        => new Promise(res => setTimeout(res, ms));
+  const anim = (a) => new Promise(res => a.start(() => res()));
+  const wait = (ms) => new Promise(res => setTimeout(res, ms));
 
   async function goStep(ns) {
-    if (busyRef.current) return;
-    busyRef.current = true;
+    const gen = ++genRef.current;
     resetAnims();
     ns = Math.max(0, Math.min(STEPS.length - 1, ns));
     setStep(ns);
     setBoard(BOARDS[Math.min(ns, BOARDS.length - 1)]);
-    await wait(60);
-    if (!mounted.current) { busyRef.current = false; return; }
+    await wait(80);
+    if (!mounted.current || genRef.current !== gen) return;
 
-    // ── Step 0: overview — main row pulses ──────────────────────────────────
     if (ns === 0) {
       hlOp.setValue(1);
       pulseRef.current = Animated.loop(Animated.sequence([
@@ -137,189 +143,185 @@ export default function TutorialModal({ visible, onClose, showDismiss = false })
         Animated.timing(hlPulse, { toValue: 0, duration: 700, useNativeDriver: false }),
       ]));
       pulseRef.current.start();
-      busyRef.current = false;
 
-    // ── Step 1: push column 2 down ──────────────────────────────────────────
     } else if (ns === 1) {
       colHlOp.setValue(1);
       handY.setValue(-30);
       await wait(200);
-      if (!mounted.current) { busyRef.current = false; return; }
+      if (!mounted.current || genRef.current !== gen) return;
       await anim(Animated.parallel([
-        // hand sweeps down
         Animated.sequence([
           Animated.timing(handOp, { toValue: 1, duration: 150, useNativeDriver: true }),
           Animated.timing(handY, { toValue: ROWS * CS + 20, duration: 900,
             useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
           Animated.timing(handOp, { toValue: 0, duration: 200, useNativeDriver: true }),
         ]),
-        // column cells follow 350 ms later
         Animated.sequence([
           Animated.delay(350),
           Animated.timing(colY, { toValue: CS, duration: 350,
             useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
         ]),
       ]));
-      if (!mounted.current) { busyRef.current = false; return; }
-      // Commit shifted board: last row of col2 wraps to top
-      const col2   = BOARDS[1].map(row => row[2]);
+      if (!mounted.current || genRef.current !== gen) return;
+      const col2 = BOARDS[1].map(row => row[2]);
       const pushed = [col2[6], ...col2.slice(0, 6)];
       setBoard(BOARDS[1].map((row, r) => row.map((c, ci) => (ci === 2 ? pushed[r] : c))));
       colY.setValue(0);
       colHlOp.setValue(0);
-      busyRef.current = false;
 
-    // ── Step 2: slide main row right ────────────────────────────────────────
     } else if (ns === 2) {
       hlOp.setValue(1);
       handX.setValue(-20);
       await wait(200);
-      if (!mounted.current) { busyRef.current = false; return; }
+      if (!mounted.current || genRef.current !== gen) return;
       await anim(Animated.parallel([
-        // hand sweeps right
         Animated.sequence([
           Animated.timing(handOp, { toValue: 1, duration: 150, useNativeDriver: true }),
-          Animated.timing(handX, { toValue: COLS * CS + 20, duration: 800,
+          Animated.timing(handX, { toValue: BOARD_W + 20, duration: 800,
             useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
           Animated.timing(handOp, { toValue: 0, duration: 200, useNativeDriver: true }),
         ]),
-        // row slides out to right
         Animated.sequence([
           Animated.delay(250),
-          Animated.parallel([
-            Animated.timing(rowX,  { toValue: CS,  duration: 280, useNativeDriver: true }),
-            Animated.timing(rowOp, { toValue: 0,   duration: 200, useNativeDriver: true }),
-          ]),
+          Animated.timing(rowX, { toValue: BOARD_W + CELL, duration: 680,
+            useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
         ]),
       ]));
-      if (!mounted.current) { busyRef.current = false; return; }
-      // Slide-right: last cell wraps to position 0; slide in from left
-      const row  = BOARDS[2][MR];
+      if (!mounted.current || genRef.current !== gen) return;
+      const row = BOARDS[2][MR];
       const slid = [row[4], ...row.slice(0, 4)];
       setBoard(BOARDS[2].map((r, ri) => (ri === MR ? slid : r)));
-      rowX.setValue(-CS);
-      await anim(Animated.parallel([
-        Animated.timing(rowX,  { toValue: 0, duration: 280, useNativeDriver: true }),
-        Animated.timing(rowOp, { toValue: 1, duration: 250, useNativeDriver: true }),
-      ]));
-      if (!mounted.current) { busyRef.current = false; return; }
-      rowX.setValue(0); rowOp.setValue(1);
-      busyRef.current = false;
+      rowX.setValue(-(BOARD_W + CELL));
+      await wait(16);
+      if (!mounted.current || genRef.current !== gen) return;
+      await anim(Animated.timing(rowX, { toValue: 0, duration: 500,
+        useNativeDriver: true, easing: Easing.out(Easing.ease) }));
+      if (!mounted.current || genRef.current !== gen) return;
+      rowX.setValue(0);
 
-    // ── Step 3: match + score ────────────────────────────────────────────────
     } else if (ns === 3) {
       hlOp.setValue(1);
-      await wait(300);
-      if (!mounted.current) { busyRef.current = false; return; }
-      // Flash 3 reds, 3 times
+      setMatchVisible(true);
+      await wait(350);
+      if (!mounted.current || genRef.current !== gen) return;
       await anim(Animated.loop(Animated.sequence([
         Animated.timing(matchOp, { toValue: 0.08, duration: 200, useNativeDriver: true }),
         Animated.timing(matchOp, { toValue: 1.0,  duration: 200, useNativeDriver: true }),
       ]), { iterations: 3 }));
-      if (!mounted.current) { busyRef.current = false; return; }
-      // Shrink away + score pops
+      if (!mounted.current || genRef.current !== gen) return;
       await anim(Animated.parallel([
-        Animated.timing(matchSc, { toValue: 0, duration: 280, useNativeDriver: true }),
-        Animated.timing(matchOp, { toValue: 0, duration: 280, useNativeDriver: true }),
+        Animated.timing(matchSc, { toValue: 0, duration: 260, useNativeDriver: true }),
+        Animated.timing(matchOp, { toValue: 0, duration: 260, useNativeDriver: true }),
         Animated.sequence([
-          Animated.delay(80),
-          Animated.timing(scoreOp, { toValue: 1, duration: 200, useNativeDriver: true }),
+          Animated.delay(60),
+          Animated.timing(scoreOp, { toValue: 1, duration: 180, useNativeDriver: true }),
         ]),
       ]));
-      if (!mounted.current) { busyRef.current = false; return; }
-      // Clear the matched cells from board
+      if (!mounted.current || genRef.current !== gen) return;
+      setMatchVisible(false);
       setBoard(BOARDS[3].map((row, r) =>
         r === MR ? row.map((c, ci) => (ci < 3 ? null : c)) : row
       ));
       matchSc.setValue(1); matchOp.setValue(0);
-      await wait(500);
+      setFalling(true);
+      await wait(80);
+      if (!mounted.current || genRef.current !== gen) return;
+      await anim(Animated.parallel(
+        fallY.map(fy => Animated.timing(fy, {
+          toValue: CS, duration: 320,
+          useNativeDriver: true, easing: Easing.in(Easing.quad),
+        }))
+      ));
+      if (!mounted.current || genRef.current !== gen) return;
+      const b = BOARDS[3];
+      setBoard(b.map((row, r) => {
+        if (r === MR)     return [b[MR-1][0], b[MR-1][1], b[MR-1][2], row[3], row[4]];
+        if (r === MR - 1) return [b[MR-2][0], b[MR-2][1], b[MR-2][2], row[3], row[4]];
+        if (r === MR - 2) return [b[MR-3][0], b[MR-3][1], b[MR-3][2], row[3], row[4]];
+        if (r === MR - 3) return [null, null, null, row[3], row[4]];
+        return row;
+      }));
+      fallY[0].setValue(0); fallY[1].setValue(0); fallY[2].setValue(0);
+      setFalling(false);
+      await wait(400);
+      if (!mounted.current || genRef.current !== gen) return;
       await anim(Animated.parallel([
         Animated.timing(scoreOp, { toValue: 0, duration: 300, useNativeDriver: true }),
         Animated.timing(scoreY,  { toValue: -20, duration: 300, useNativeDriver: true }),
       ]));
-      if (!mounted.current) { busyRef.current = false; return; }
-      busyRef.current = false;
 
-    // ── Step 4: power-ups — static ──────────────────────────────────────────
-    } else {
-      busyRef.current = false;
+    } else if (ns === 4) {
+      const localGen = gen;
+      puTimer.current = setInterval(() => {
+        if (genRef.current !== localGen || !mounted.current) {
+          clearInterval(puTimer.current); return;
+        }
+        setPuIndex(i => (i + 1) % PU4.length);
+      }, 1800);
     }
   }
 
-  // Trigger step 0 whenever modal opens
   useEffect(() => {
     if (visible) {
-      busyRef.current = false;
-      setStep(0);
-      setDontShow(false);
-      setBoard(BOARDS[0]);
-      resetAnims();
+      genRef.current = 0;
+      setStep(0); setDontShow(false); setBoard(BOARDS[0]); resetAnims();
       const t = setTimeout(() => { if (mounted.current) goStep(0); }, 150);
       return () => clearTimeout(t);
     }
   }, [visible]);
 
-  // Interpolate row-highlight border colour
   const hlBorderColor = hlPulse.interpolate({
-    inputRange:  [0, 1],
-    outputRange: ['#FFD700', '#FFFDE7'],
+    inputRange: [0, 1], outputRange: ['#FFD700', '#FFFDE7'],
   });
 
-  // Cell visibility: hide cells covered by animated overlays
   const isCovered = (r, c) =>
     (step === 1 && c === 2) ||
     (step === 2 && r === MR) ||
-    (step === 3 && r === MR && c < 3 && matchOp.__getValue() > 0);
+    (step === 3 && matchVisible && r === MR && c < 3) ||
+    (step === 3 && falling && r === MR - 1 && c < 3);
 
   return (
     <Modal visible={visible} animationType="fade" transparent
-      onRequestClose={() => { if (!busyRef.current) onClose(dontShow); }}>
+      onRequestClose={() => onClose(dontShow)}>
       <View style={st.backdrop}>
         <View style={st.sheet}>
+
+          {/* X close button */}
+          <TouchableOpacity style={st.closeBtn} onPress={() => onClose(dontShow)} activeOpacity={0.7}>
+            <Text style={st.closeBtnTxt}>{'×'}</Text>
+          </TouchableOpacity>
+
           <Text style={st.title}>{STEPS[step]?.title}</Text>
 
-          {/* ── Board ────────────────────────────────────────────────────── */}
           <View style={[st.boardWrap, { width: BOARD_W, height: BOARD_H }]}>
 
             {/* Static cells */}
-            {board.map((row, r) => row.map((col, c) => (
-              <View
-                key={`${r}-${c}`}
-                style={[st.cellPos, {
-                  left: PAD + c * CS,
-                  top:  PAD + r * CS,
-                  opacity: isCovered(r, c) ? 0 : 1,
-                }]}
-              >
-                <TBall color={col} />
+            {(step === 4 ? BOARDS[4] : board).map((row, r) => row.map((col, c) => (
+              <View key={`${r}-${c}`} style={[st.cellPos, {
+                left: PAD + c * CS, top: PAD + r * CS,
+                opacity: isCovered(r, c) ? 0 : 1,
+              }]}>
+                <TBall
+                  color={col}
+                  puIcon={step === 4 && r === MR ? PU4[c]?.icon : undefined}
+                  puGlow={step === 4 && r === MR ? PU4[c]?.glow : undefined}
+                  puActive={step === 4 && r === MR && c === puIndex}
+                />
               </View>
             )))}
 
             {/* Main row gold highlight */}
-            <Animated.View
-              pointerEvents="none"
-              style={[st.hlRow, {
-                top: PAD + MR * CS - 1,
-                opacity: hlOp,
-                borderColor: hlBorderColor,
-              }]}
-            />
+            <Animated.View pointerEvents="none" style={[st.hlRow, {
+              top: PAD + MR * CS - 1, opacity: hlOp, borderColor: hlBorderColor,
+            }]} />
 
-            {/* Column 2 green highlight */}
-            <Animated.View
-              pointerEvents="none"
-              style={[st.hlCol, {
-                left: PAD + 2 * CS - 1,
-                opacity: colHlOp,
-              }]}
-            />
-
-            {/* Column 2 overlay (push animation) */}
+            {/* Column 2 highlight + overlay */}
+            <Animated.View pointerEvents="none" style={[st.hlCol, {
+              left: PAD + 2 * CS - 1, opacity: colHlOp,
+            }]} />
             {step === 1 && (
               <Animated.View style={[st.colOverlay, {
-                left: PAD + 2 * CS,
-                top:  PAD,
-                transform: [{ translateY: colY }],
+                left: PAD + 2 * CS, top: PAD, transform: [{ translateY: colY }],
               }]}>
                 {BOARDS[1].map((row, r) => (
                   <View key={r} style={{ marginBottom: r < ROWS - 1 ? GAP : 0 }}>
@@ -329,15 +331,12 @@ export default function TutorialModal({ visible, onClose, showDismiss = false })
               </Animated.View>
             )}
 
-            {/* Main row overlay (slide animation) */}
+            {/* Row overlay — pure slide, no fade */}
             {step === 2 && (
               <Animated.View style={[st.rowOverlay, {
-                left:      PAD,
-                top:       PAD + MR * CS,
-                opacity:   rowOp,
-                transform: [{ translateX: rowX }],
+                left: PAD, top: PAD + MR * CS, transform: [{ translateX: rowX }],
               }]}>
-                {board[MR].map((col, c) => (
+                {BOARDS[2][MR].map((col, c) => (
                   <View key={c} style={{ marginRight: c < COLS - 1 ? GAP : 0 }}>
                     <TBall color={col} />
                   </View>
@@ -345,27 +344,32 @@ export default function TutorialModal({ visible, onClose, showDismiss = false })
               </Animated.View>
             )}
 
-            {/* Match overlay — 3 red balls that flash then shrink */}
+            {/* Match overlay — 3 reds that flash then shrink */}
             {step === 3 && [0, 1, 2].map(c => (
-              <Animated.View key={c} style={[st.cellPos, {
-                left:      PAD + c * CS,
-                top:       PAD + MR * CS,
-                opacity:   matchOp,
-                transform: [{ scale: matchSc }],
+              <Animated.View key={`m${c}`} style={[st.cellPos, {
+                left: PAD + c * CS, top: PAD + MR * CS,
+                opacity: matchOp, transform: [{ scale: matchSc }],
               }]}>
                 <TBall color="R" />
               </Animated.View>
             ))}
 
-            {/* "+150" score popup */}
-            <Animated.Text style={[st.scorePop, {
-              opacity:   scoreOp,
-              transform: [{ translateY: scoreY }],
-            }]}>
-              +150
-            </Animated.Text>
+            {/* Falling balls — row MR-1 cols 0-2 animate down by CS */}
+            {step === 3 && falling && [0, 1, 2].map(c => (
+              <Animated.View key={`f${c}`} style={[st.cellPos, {
+                left: PAD + c * CS, top: PAD + (MR - 1) * CS,
+                transform: [{ translateY: fallY[c] }],
+              }]}>
+                <TBall color={BOARDS[3][MR - 1][c]} />
+              </Animated.View>
+            ))}
 
-            {/* Swipe gesture indicator (white pill) */}
+            {/* Score popup */}
+            <Animated.Text style={[st.scorePop, {
+              opacity: scoreOp, transform: [{ translateY: scoreY }],
+            }]}>+150</Animated.Text>
+
+            {/* Swipe hand indicator */}
             {(step === 1 || step === 2) && (
               <Animated.View style={[
                 st.swipePill,
@@ -379,8 +383,10 @@ export default function TutorialModal({ visible, onClose, showDismiss = false })
             )}
           </View>
 
-          {/* Description */}
-          <Text style={st.body}>{STEPS[step]?.body}</Text>
+          {/* Description — step 4 shows cycling power-up text */}
+          <Text style={st.body}>
+            {step === 4 ? PU4_DESCS[puIndex] : STEPS[step]?.body}
+          </Text>
 
           {/* Step dots */}
           <View style={st.dots}>
@@ -393,10 +399,10 @@ export default function TutorialModal({ visible, onClose, showDismiss = false })
           <View style={st.nav}>
             <TouchableOpacity
               style={[st.navBtn, step === 0 && st.navBtnDim]}
-              disabled={step === 0 || busyRef.current}
+              disabled={step === 0}
               onPress={() => goStep(step - 1)}
             >
-              <Text style={st.navBtnTxt}>← Back</Text>
+              <Text style={st.navBtnTxt}>{'←'} Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[st.navBtn, st.navBtnPrimary]}
@@ -411,13 +417,12 @@ export default function TutorialModal({ visible, onClose, showDismiss = false })
             </TouchableOpacity>
           </View>
 
-          {/* "Don't show again" — only for pre-game use */}
           {showDismiss && (
             <TouchableOpacity style={st.checkRow} onPress={() => setDontShow(d => !d)} activeOpacity={0.7}>
               <View style={[st.checkbox, dontShow && st.checkboxOn]}>
-                {dontShow && <Text style={st.checkmark}>✓</Text>}
+                {dontShow && <Text style={st.checkmark}>{'✓'}</Text>}
               </View>
-              <Text style={st.checkLabel}>Don't show this again</Text>
+              <Text style={st.checkLabel}>{"Don't show this again"}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -426,144 +431,93 @@ export default function TutorialModal({ visible, onClose, showDismiss = false })
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const st = StyleSheet.create({
   backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.78)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.78)',
+    alignItems: 'center', justifyContent: 'center', padding: 16,
   },
   sheet: {
-    backgroundColor: '#13132B',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#1E1E44',
-    padding: 20,
-    alignItems: 'center',
-    maxWidth: 380,
-    width: '100%',
+    backgroundColor: '#13132B', borderRadius: 18,
+    borderWidth: 1, borderColor: '#1E1E44',
+    padding: 20, paddingTop: 38,
+    alignItems: 'center', maxWidth: 380, width: '100%',
   },
+  closeBtn:    { position: 'absolute', top: 8, right: 12, padding: 8 },
+  closeBtnTxt: { color: '#555', fontSize: 24, lineHeight: 26, fontWeight: '300' },
   title: {
-    color: '#FFD700',
-    fontSize: 18,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    marginBottom: 14,
+    color: '#FFD700', fontSize: 18, fontWeight: 'bold',
+    letterSpacing: 1, marginBottom: 14,
   },
-
-  // Board
   boardWrap: {
-    position: 'relative',
-    backgroundColor: '#0D0D22',
-    borderRadius: 10,
-    borderWidth: 0.5,
-    borderColor: '#1A1A38',
-    overflow: 'hidden',
-    marginBottom: 14,
+    position: 'relative', backgroundColor: '#0D0D22',
+    borderRadius: 10, borderWidth: 0.5, borderColor: '#1A1A38',
+    overflow: 'hidden', marginBottom: 14,
   },
-  cellPos: { position: 'absolute' },
+  cellPos:    { position: 'absolute' },
   colOverlay: { position: 'absolute' },
   rowOverlay: { position: 'absolute', flexDirection: 'row' },
-
-  // Individual marble
   ball: {
-    width: CELL, height: CELL, borderRadius: CELL / 2,
-    overflow: 'hidden',
+    width: CELL, height: CELL, borderRadius: CELL / 2, overflow: 'hidden',
   },
   emptyBall: {
     width: CELL, height: CELL, borderRadius: CELL / 2,
-    backgroundColor: '#0A0A1E',
-    borderWidth: 0.5, borderColor: '#1A1A38',
+    backgroundColor: '#0A0A1E', borderWidth: 0.5, borderColor: '#1A1A38',
   },
   shine: {
-    position: 'absolute',
-    top: '11%', left: '12%',
-    width: '28%', height: '17%',
-    borderRadius: 4,
+    position: 'absolute', top: '11%', left: '12%',
+    width: '28%', height: '17%', borderRadius: 4,
     backgroundColor: 'rgba(255,255,255,0.6)',
     transform: [{ rotate: '-35deg' }],
   },
-
-  // Highlights
+  puRing: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: CELL / 2,
+  },
+  puIconWrap: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  puIconTxt: { fontSize: 13 },
   hlRow: {
-    position: 'absolute',
-    left: 3, right: 3,
-    height: CELL + 2,
-    borderWidth: 2.5,
-    borderRadius: CELL,
-    pointerEvents: 'none',
+    position: 'absolute', left: 3, right: 3, height: CELL + 2,
+    borderWidth: 2.5, borderRadius: CELL,
   },
   hlCol: {
-    position: 'absolute',
-    top: 3, bottom: 3,
-    width: CELL + 2,
-    borderWidth: 2.5,
-    borderColor: '#4ADE80',
-    borderRadius: CELL,
-    pointerEvents: 'none',
+    position: 'absolute', top: 3, bottom: 3, width: CELL + 2,
+    borderWidth: 2.5, borderColor: '#4ADE80', borderRadius: CELL,
   },
-
-  // Swipe indicator
   swipePill: {
-    position: 'absolute',
-    width: 16, height: 26,
-    borderRadius: 8,
+    position: 'absolute', width: 16, height: 26, borderRadius: 8,
     backgroundColor: 'rgba(255,255,255,0.88)',
     ...Platform.select({ web: { boxShadow: '0 2px 8px rgba(255,255,255,0.35)' } }),
   },
-
-  // Score popup
   scorePop: {
-    position: 'absolute',
-    top: '40%', left: 0, right: 0,
-    textAlign: 'center',
-    color: '#FFD700',
-    fontSize: 20,
-    fontWeight: 'bold',
-    letterSpacing: 1,
+    position: 'absolute', top: '40%', left: 0, right: 0,
+    textAlign: 'center', color: '#FFD700',
+    fontSize: 20, fontWeight: 'bold', letterSpacing: 1,
   },
-
-  // Description
   body: {
-    color: '#999',
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: 'center',
-    marginBottom: 14,
-    paddingHorizontal: 4,
+    color: '#999', fontSize: 13, lineHeight: 19,
+    textAlign: 'center', marginBottom: 14, paddingHorizontal: 4, minHeight: 40,
   },
-
-  // Step dots
-  dots: { flexDirection: 'row', gap: 6, marginBottom: 16 },
-  dot:  { width: 7, height: 7, borderRadius: 4, backgroundColor: '#1E1E44' },
+  dots:  { flexDirection: 'row', gap: 6, marginBottom: 16 },
+  dot:   { width: 7, height: 7, borderRadius: 4, backgroundColor: '#1E1E44' },
   dotOn: { backgroundColor: '#FFD700' },
-
-  // Nav buttons
-  nav: { flexDirection: 'row', gap: 10, width: '100%', marginBottom: 4 },
+  nav:   { flexDirection: 'row', gap: 10, width: '100%', marginBottom: 4 },
   navBtn: {
-    flex: 1, paddingVertical: 11,
-    borderRadius: 10, alignItems: 'center',
-    backgroundColor: '#1A1A38',
-    borderWidth: 1, borderColor: '#252555',
+    flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center',
+    backgroundColor: '#1A1A38', borderWidth: 1, borderColor: '#252555',
   },
   navBtnPrimary: { backgroundColor: '#2ED573', borderColor: '#2ED573' },
-  navBtnDim: { opacity: 0.3 },
-  navBtnTxt: { color: '#CCC', fontSize: 14 },
-
-  // Don't-show checkbox
-  checkRow: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: 10, marginTop: 10,
-  },
+  navBtnDim:     { opacity: 0.3 },
+  navBtnTxt:     { color: '#CCC', fontSize: 14 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   checkbox: {
     width: 20, height: 20, borderRadius: 4,
-    borderWidth: 1.5, borderColor: '#333',
-    backgroundColor: '#0D0D22',
+    borderWidth: 1.5, borderColor: '#333', backgroundColor: '#0D0D22',
     alignItems: 'center', justifyContent: 'center',
   },
   checkboxOn: { backgroundColor: '#1E90FF', borderColor: '#1E90FF' },
-  checkmark: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+  checkmark:  { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
   checkLabel: { color: '#666', fontSize: 13 },
 });

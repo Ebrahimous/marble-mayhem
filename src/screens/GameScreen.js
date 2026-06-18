@@ -2340,9 +2340,9 @@ const styles = StyleSheet.create({
   // 2× multiplier countdown bar (shown under TIME block in Mayhem)
   // ── Zen Mode progress bar ──────────────────────────────────────────────────
   zenProgressRow:  { flexDirection: 'column', paddingHorizontal: 12, paddingTop: 4, paddingBottom: 6, gap: 4, borderBottomWidth: 1, borderBottomColor: '#0D0D22' },
-  zenLevelTxt:     { color: '#2ED573', fontSize: 10, fontWeight: 'bold', letterSpacing: 1 },
-  zenBarTrack:     { width: '100%', height: 8, backgroundColor: '#1A1A38', borderRadius: 4, overflow: 'hidden' },
-  zenBarFill:      { height: '100%', backgroundColor: '#2ED573', borderRadius: 4 },
+  zenLevelTxt:     { color: '#2ED573', fontSize: 14, fontWeight: 'bold', letterSpacing: 1 },
+  zenBarTrack:     { width: '100%', height: 10, backgroundColor: '#1A1A38', borderRadius: 5, overflow: 'hidden' },
+  zenBarFill:      { height: '100%', backgroundColor: '#2ED573', borderRadius: 5 },
   zenLevelReached: { color: '#2ED573', fontSize: 14, fontWeight: 'bold', textAlign: 'center', marginTop: 8, letterSpacing: 1 },
   goBtnEndSession: { borderColor: '#FF6B35', borderWidth: 1.5, backgroundColor: 'transparent' },
 
