@@ -56,7 +56,7 @@ export const { cellSize: CELL_SIZE, boardPx: BOARD_PX } = getBoardMetrics(width)
 // Flat colour palette (see marbles_template_1.svg). 5-ball mode drops "teal";
 // 6-ball mode (Hard difficulty) uses all six.
 export const BALL_COLORS = {
-  red:    '#E24B4A',
+  red:    '#F03333',
   blue:   '#378ADD',
   green:  '#4CAF28',
   amber:  '#EF9F27',
