@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, Animated,
-  StyleSheet, Modal, ScrollView, Platform,
+  StyleSheet, Modal, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import BallView from '../components/BallView';
 import { CELL_SIZE, BALL_TYPES_5, BALL_TYPES_6, DEFAULT_AI_DIFFICULTY } from '../constants';
 import * as sfx from '../sounds';
 import * as haptics from '../haptics';
+import TutorialModal from '../components/TutorialModal';
 
 // VS COMPUTER and 2 PLAYERS modes are hidden for now — current work is
 // focused entirely on solo mode. Flip to true to bring them back.
@@ -222,40 +223,11 @@ export default function MenuScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Help modal */}
-      <Modal visible={showHelp} animationType="slide" transparent>
-        <View style={styles.backdrop}>
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
-            <Text style={styles.sheetTitle}>How to Play</Text>
-            <ScrollView>
-              <HelpRow icon="▼" title="Push from below">
-                Tap a ▼ button (or tap the column) to push your ball in from the
-                bottom. Every ball in that column shifts up one row.
-              </HelpRow>
-              <HelpRow icon="🌈" title="Match 3+">
-                Line up 3 or more balls of the same colour — in a column, across a
-                row, or diagonally — and they disappear. Remaining balls fall down.
-              </HelpRow>
-              <HelpRow icon="💥" title="Overflow">
-                If the top of a column was already full when you push, the topmost
-                ball flies across to a random column on your opponent's board.
-                Fill up all their columns and you win!
-              </HelpRow>
-              <HelpRow icon="⚡" title="Chain reactions">
-                Cleared balls can land and create new matches automatically.
-                More chains = bigger score bonus.
-              </HelpRow>
-              <HelpRow icon="👥" title="2-Player mode">
-                Each player controls their own half of the screen. P1 taps the left
-                board columns, P2 taps the right board columns.
-              </HelpRow>
-            </ScrollView>
-            <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setHelp(false); }}>
-              <Text style={styles.sheetCloseTxt}>Got it!</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* Help modal — animated tutorial */}
+      <TutorialModal
+        visible={showHelp}
+        onClose={() => { sfx.playClick(); setHelp(false); }}
+      />
 
       {/* Settings modal */}
       <Modal visible={showSettings} animationType="slide" transparent onRequestClose={() => setSettings(false)}>
@@ -432,17 +404,6 @@ export default function MenuScreen({ navigation }) {
   );
 }
 
-function HelpRow({ icon, title, children }) {
-  return (
-    <View style={styles.helpRow}>
-      <Text style={styles.helpIcon}>{icon}</Text>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.helpTitle}>{title}</Text>
-        <Text style={styles.helpBody}>{children}</Text>
-      </View>
-    </View>
-  );
-}
 
 const styles = StyleSheet.create({
   root: {

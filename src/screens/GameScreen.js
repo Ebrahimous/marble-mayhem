@@ -48,6 +48,7 @@ import {
 } from '../engine';
 
 import BallView from '../components/BallView';
+import TutorialModal from '../components/TutorialModal';
 import * as sfx from '../sounds';
 import * as haptics from '../haptics';
 import { scoreQualifies, saveScore } from '../firebase';
@@ -629,8 +630,6 @@ const SLIDE_EASING   = Easing.out(Easing.cubic);
 const SQUASH_EASING  = Easing.out(Easing.quad);
 const RECOVER_EASING = Easing.out(Easing.back(1.6));
 
-// Size of the little balls used in the first-run tutorial's illustrations.
-const TUT_BALL = 18;
 
 /** Call `fn(ball, row, col)` for every occupied cell on the board. */
 function forEachCell(board, fn) {
@@ -1590,17 +1589,11 @@ export default function GameScreen({ navigation, route }) {
   // started. `showTutorial` starts as `null` (unknown) until the AsyncStorage
   // check resolves, so it never flashes on screen for returning players.
   const [showTutorial, setShowTutorial] = useState(null);
-  const [dontShowTutorial, setDontShowTutorial] = useState(false);
   const showTutorialRef = useRef(false);
   useEffect(() => {
     AsyncStorage.getItem('tutorialDismissed').then(v => setShowTutorial(v !== 'true'));
   }, []);
   showTutorialRef.current = showTutorial === true;
-
-  const closeTutorial = useCallback(() => {
-    if (dontShowTutorial) AsyncStorage.setItem('tutorialDismissed', 'true');
-    setShowTutorial(false);
-  }, [dontShowTutorial]);
 
   // ── Leave-game confirmation (mobile/web back gesture) ─────────────────────────
   // On web, the browser/phone "back" gesture would normally navigate away from
@@ -2316,72 +2309,15 @@ export default function GameScreen({ navigation, route }) {
         </View>
       )}
 
-      {/* First-run tutorial — minimal-word, illustration-led */}
-      <Modal visible={showTutorial === true} animationType="fade" transparent onRequestClose={closeTutorial}>
-        <View style={styles.tutBackdrop}>
-          <View style={styles.tutSheet}>
-            <Text style={styles.tutTitle}>How to Play</Text>
-
-            <View style={styles.tutGrid}>
-              {/* Drag a column up/down */}
-              <View style={styles.tutCell}>
-                <View style={styles.tutIllusBox}>
-                  <Text style={styles.tutArrow}>▲</Text>
-                  <View style={styles.tutColStack}>
-                    <BallView type="blue" size={TUT_BALL} />
-                    <BallView type="green" size={TUT_BALL} />
-                    <BallView type="purple" size={TUT_BALL} />
-                  </View>
-                  <Text style={styles.tutArrow}>▼</Text>
-                </View>
-                <Text style={styles.tutCaption}>Drag columns</Text>
-              </View>
-
-              {/* Swipe the main row left/right */}
-              <View style={styles.tutCell}>
-                <View style={[styles.tutIllusBox, styles.tutIllusRow]}>
-                  <Text style={styles.tutArrow}>◀</Text>
-                  <View style={styles.tutRowBar}>
-                    <BallView type="amber" size={TUT_BALL} />
-                    <BallView type="red" size={TUT_BALL} />
-                    <BallView type="blue" size={TUT_BALL} />
-                  </View>
-                  <Text style={styles.tutArrow}>▶</Text>
-                </View>
-                <Text style={styles.tutCaption}>Swipe gold row</Text>
-              </View>
-
-              {/* Match 3+ same-colour balls */}
-              <View style={styles.tutCell}>
-                <View style={[styles.tutIllusBox, styles.tutIllusRow]}>
-                  <Text style={styles.tutSparkle}>✨</Text>
-                  <View style={styles.tutMatchRow}>
-                    <BallView type="red" size={TUT_BALL} />
-                    <BallView type="red" size={TUT_BALL} />
-                    <BallView type="red" size={TUT_BALL} />
-                  </View>
-                </View>
-                <Text style={styles.tutCaption}>Match 3+ to clear</Text>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.tutCheckRow}
-              activeOpacity={0.7}
-              onPress={() => setDontShowTutorial(d => !d)}
-            >
-              <View style={[styles.tutCheckbox, dontShowTutorial && styles.tutCheckboxChecked]}>
-                {dontShowTutorial && <Text style={styles.tutCheckmark}>✓</Text>}
-              </View>
-              <Text style={styles.tutCheckLabel}>Don't show this again</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.goBtn} onPress={() => { sfx.playClick(); closeTutorial(); }}>
-              <Text style={styles.goBtnTxt}>Got it!</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* First-run tutorial — animated step-by-step */}
+      <TutorialModal
+        visible={showTutorial === true}
+        showDismiss
+        onClose={(dontShow) => {
+          if (dontShow) AsyncStorage.setItem('tutorialDismissed', 'true');
+          setShowTutorial(false);
+        }}
+      />
     </View>
   );
 }
@@ -2861,86 +2797,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // First-run tutorial modal
-  tutBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  tutSheet: {
-    backgroundColor: '#13132B',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1E1E44',
-    padding: 24,
-    maxWidth: 360,
-    width: '100%',
-    alignItems: 'center',
-  },
-  tutTitle: { color: '#FFD700', fontSize: 22, fontWeight: 'bold', letterSpacing: 1, marginBottom: 16 },
-
-  // Illustration grid — cards, each a tiny diagram + 2-4 word caption.
-  tutGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  tutCell: {
-    width: '48%',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  tutIllusBox: {
-    height: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  tutIllusRow: { flexDirection: 'row' },
-  tutColStack: {
-    flexDirection: 'column',
-    alignItems: 'center',
-  },
-  tutRowBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,215,0,0.15)',
-    borderRadius: 6,
-    paddingHorizontal: 2,
-  },
-  tutMatchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#FFD700',
-    borderRadius: 6,
-    paddingHorizontal: 2,
-  },
-  tutArrow: { color: '#FFD700', fontSize: 16, fontWeight: 'bold' },
-  tutSparkle: { fontSize: 16, position: 'absolute', top: -2 },
-  tutCaption: { color: '#CCC', fontSize: 13, textAlign: 'center' },
-
-  tutCheckRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginTop: 14,
-    marginBottom: 18,
-  },
-  tutCheckbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#555',
-    marginRight: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tutCheckboxChecked: { backgroundColor: '#1E90FF', borderColor: '#1E90FF' },
-  tutCheckmark: { color: '#FFF', fontSize: 13, fontWeight: 'bold' },
-  tutCheckLabel: { color: '#999', fontSize: 13 },
 });
