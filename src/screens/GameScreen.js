@@ -62,6 +62,11 @@ function usesRelaxMechanics(mode) {
   return mode === 'relax' || mode === 'solo-time' || mode === 'mayhem';
 }
 
+// XP required to complete level N in Zen mode — grows ~40% per level.
+function zenXPForLevel(level) {
+  return Math.floor(20 * Math.pow(1.4, level - 1));
+}
+
 function createInitialState(mode, ballCount = 5) {
   setBallTypes(ballCount === 6 ? BALL_TYPES_6 : BALL_TYPES_5);
   const isSolo = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax' || mode === 'mayhem';
@@ -105,6 +110,12 @@ function createInitialState(mode, ballCount = 5) {
     base.mayhemOverReason = null;
     base.lastBombBlast    = null; // { id, row, col } — set when a bomb PU fires
     base.lastTbombDefuse  = 0;   // incremented each time a tbomb is defused by a match
+  }
+
+  if (mode === 'relax') {
+    base.zenXP         = 0;
+    base.zenLevel      = 1;
+    base.zenXPRequired = zenXPForLevel(1); // 20
   }
 
   return base;
@@ -349,6 +360,19 @@ function applySlide(state, playerIdx, slidedBoard) {
     }
   }
 
+  // Zen Mode: accumulate XP from cleared balls; level up when bar fills.
+  let zenXP         = state.zenXP         ?? 0;
+  let zenLevel      = state.zenLevel      ?? 1;
+  let zenXPRequired = state.zenXPRequired ?? zenXPForLevel(1);
+  if (state.mode === 'relax' && cleared > 0) {
+    zenXP += cleared + (chains > 1 ? (chains - 1) * 2 : 0);
+    while (zenXP >= zenXPRequired) {
+      zenXP        -= zenXPRequired;
+      zenLevel      += 1;
+      zenXPRequired  = zenXPForLevel(zenLevel);
+    }
+  }
+
   return {
     ...state,
     boards,
@@ -360,6 +384,7 @@ function applySlide(state, playerIdx, slidedBoard) {
     lastMatch,
     aiTick: playerIdx === 1 ? state.aiTick + 1 : state.aiTick,
     ...(state.mode === 'mayhem' && { powerUps, freezeLeft, multiplierLeft, mayhemOverReason, lastBombBlast, lastTbombDefuse }),
+    ...(state.mode === 'relax'  && { zenXP, zenLevel, zenXPRequired }),
   };
 }
 
@@ -466,6 +491,10 @@ function gameReducer(state, action) {
 
     case 'SET_PAUSED':
       return { ...state, paused: action.value };
+
+    case 'ZEN_END_SESSION':
+      if (state.mode !== 'relax') return state;
+      return { ...state, gameOver: true, paused: false };
 
     case 'TICK': {
       if (state.paused || state.timeLeft == null) return state;
@@ -1058,6 +1087,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
            : pu.type === 'lightning' ? '⚡'
            : pu.type === 'multiplier'? '×2'
            : pu.type === 'colorbomb' ? '🎨'
+           : pu.type === 'cursed'    ? '🪨'
            : '?'}
           </Text>
         )}
@@ -1077,6 +1107,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
         pu.type === 'lightning'  && styles.puGlowLightning,
         pu.type === 'multiplier' && styles.puGlowMultiplier,
         pu.type === 'colorbomb'  && styles.puGlowColorbomb,
+        pu.type === 'cursed'     && styles.puGlowCursed,
         { borderRadius: cellSize * 0.5, width: cellSize - 2, height: cellSize - 2 },
       ]} pointerEvents="none" />
     ) : null;
@@ -1900,6 +1931,9 @@ export default function GameScreen({ navigation, route }) {
   }, [state.gameOver]);
 
   const { boards, scores, gameOver, winner, lastMatch, selectedCol, paused, timeLeft } = state;
+  const zenXP         = state.zenXP         ?? 0;
+  const zenLevel      = state.zenLevel      ?? 1;
+  const zenXPRequired = state.zenXPRequired ?? 20;
   const powerUps       = state.powerUps ?? {};
   const freezeLeft     = state.freezeLeft ?? 0;
   const multiplierLeft = state.multiplierLeft ?? 0;
@@ -1995,6 +2029,13 @@ export default function GameScreen({ navigation, route }) {
                 <Animated.Text style={[styles.scoreVal, { transform: [{ scale: scorePop }] }]}>{scores[0]}</Animated.Text>
               </View>
 
+              {mode === 'relax' && (
+                <View style={styles.scoreBlock}>
+                  <Text style={styles.scoreLabel}>LEVEL</Text>
+                  <Text style={styles.scoreVal}>{zenLevel}</Text>
+                </View>
+              )}
+
               {(mode === 'solo-time' || mode === 'mayhem') && (
                 <View style={styles.scoreBlock}>
                   <Text style={[styles.scoreLabel, freezeLeft > 0 && styles.freezeLabel]}>
@@ -2061,6 +2102,16 @@ export default function GameScreen({ navigation, route }) {
                 { width: ballAddAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
               ]}
             />
+          </View>
+        )}
+
+        {mode === 'relax' && (
+          <View style={styles.zenProgressRow}>
+            <Text style={styles.zenLevelTxt}>LV {zenLevel}</Text>
+            <View style={styles.zenBarTrack}>
+              <View style={[styles.zenBarFill, { width: `${Math.round((zenXP / zenXPRequired) * 100)}%` }]} />
+            </View>
+            <Text style={styles.zenXpTxt}>{zenXP}/{zenXPRequired} XP</Text>
           </View>
         )}
 
@@ -2139,6 +2190,14 @@ export default function GameScreen({ navigation, route }) {
           <TouchableOpacity style={styles.goBtn} onPress={() => { sfx.playClick(); dispatch({ type: 'TOGGLE_PAUSE' }); }}>
             <Text style={styles.goBtnTxt}>▶  Resume</Text>
           </TouchableOpacity>
+          {mode === 'relax' && (
+            <TouchableOpacity
+              style={[styles.goBtn, styles.goBtnEndSession]}
+              onPress={() => { sfx.playClick(); dispatch({ type: 'ZEN_END_SESSION' }); }}
+            >
+              <Text style={[styles.goBtnTxt, styles.goBtnTxtSecondary]}>⏹  End Session</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.goBtn, styles.goBtnSecondary]}
             onPress={() => { sfx.playClick(); navigation.navigate('Menu'); }}
@@ -2169,7 +2228,9 @@ export default function GameScreen({ navigation, route }) {
           {isSolo ? (
             <>
               <Text style={styles.goTitle}>
-                {(mode === 'solo-time' || mode === 'mayhem')
+                {mode === 'relax'
+                ? '✅  SESSION ENDED'
+                : (mode === 'solo-time' || mode === 'mayhem')
                 ? (mayhemOverReason === 'bomb' ? '💀  BOMB EXPLODED!' : "⏰  TIME'S UP!")
                 : '🔒  STUCK!'}
               </Text>
@@ -2187,6 +2248,9 @@ export default function GameScreen({ navigation, route }) {
                   <Text style={[styles.goScoreVal, isNewBest && styles.newBestVal]}>{bestScore}</Text>
                 </View>
               </View>
+              {mode === 'relax' && zenLevel > 1 && (
+                <Text style={styles.zenLevelReached}>Level {zenLevel} reached</Text>
+              )}
             </>
           ) : (
             <>
@@ -2347,6 +2411,15 @@ const styles = StyleSheet.create({
   scoreVal:     { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
 
   // 2× multiplier countdown bar (shown under TIME block in Mayhem)
+  // ── Zen Mode progress bar ──────────────────────────────────────────────────
+  zenProgressRow:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 3, gap: 8, borderBottomWidth: 1, borderBottomColor: '#0D0D22' },
+  zenLevelTxt:     { color: '#2ED573', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, minWidth: 34 },
+  zenBarTrack:     { flex: 1, height: 5, backgroundColor: '#1A1A38', borderRadius: 3, overflow: 'hidden' },
+  zenBarFill:      { height: '100%', backgroundColor: '#2ED573', borderRadius: 3 },
+  zenXpTxt:        { color: '#333', fontSize: 9, minWidth: 54, textAlign: 'right' },
+  zenLevelReached: { color: '#2ED573', fontSize: 14, fontWeight: 'bold', textAlign: 'center', marginTop: 8, letterSpacing: 1 },
+  goBtnEndSession: { borderColor: '#FF6B35', borderWidth: 1.5, backgroundColor: 'transparent' },
+
   multBarOuter: {
     position: 'relative', marginTop: 3,
     width: 64, height: 6, borderRadius: 3,
@@ -2638,6 +2711,13 @@ const styles = StyleSheet.create({
     ...Platform.select({
       web: { boxShadow: '0 0 10px 3px rgba(224,64,251,0.8)' },
       default: { shadowColor: '#E040FB', shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+    }),
+  },
+  puGlowCursed: {
+    borderColor: '#8a8880',
+    ...Platform.select({
+      web: { boxShadow: '0 0 7px 2px rgba(138,136,128,0.6)' },
+      default: { shadowColor: '#8a8880', shadowOpacity: 0.7, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
     }),
   },
 

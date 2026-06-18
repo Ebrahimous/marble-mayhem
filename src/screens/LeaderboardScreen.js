@@ -13,9 +13,8 @@ import * as sfx from '../sounds';
 import { fetchLeaderboard } from '../firebase';
 
 export const LEADERBOARD_MODES = [
-  { key: 'mayhem',      label: 'MAYHEM',      icon: '💥' },
-  { key: 'solo-time',   label: 'TIME ATTACK', icon: '⏱️' },
-  { key: 'solo-normal', label: 'CHALLENGE',   icon: '⚔️' },
+  { key: 'mayhem', label: 'MAYHEM',   icon: '💥' },
+  { key: 'relax',  label: 'ZEN MODE', icon: '♾️' },
 ];
 
 const RANK_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];

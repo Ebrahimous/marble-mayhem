@@ -137,7 +137,6 @@ export default function MenuScreen({ navigation }) {
       <View style={styles.titleBlock}>
         <Text style={styles.titleTop}>MARBLE</Text>
         <Text style={styles.titleBot}>MAYHEM</Text>
-        <Text style={styles.subtitle}>Lose Your Marbles — reimagined</Text>
       </View>
 
       {/* Ball decoration */}
@@ -632,3 +631,4 @@ const styles = StyleSheet.create({
   toggleOptionTxt: { color: '#666', fontSize: 12, fontWeight: 'bold' },
   toggleOptionTxtActive: { color: '#FFF' },
 });
+                                                                              
