@@ -282,8 +282,6 @@ export function resolveMatches(board) {
     while (c < COLS) {
       const cell = current[MAIN_ROW][c];
       if (!cell) { c++; continue; }
-      // Cursed balls can never be part of a match — they act as walls.
-      if (cell.type === 'cursed') { c++; continue; }
 
       // Wild balls match any colour — find the effective type from the first
       // non-wild ball in the run, then extend through any cell that is either
@@ -293,7 +291,6 @@ export function resolveMatches(board) {
       while (end < COLS) {
         const next = current[MAIN_ROW][end];
         if (!next) break;
-        if (next.type === 'cursed') break; // cursed walls break any run
         if (next.type === 'wild') { end++; continue; }
         if (effectiveType === null) { effectiveType = next.type; end++; continue; }
         if (next.type === effectiveType) { end++; continue; }
@@ -348,14 +345,12 @@ export function resolveMatchesRelax(board) {
     while (c < COLS) {
       const cell = current[MAIN_ROW][c];
       if (!cell) { c++; continue; }
-      if (cell.type === 'cursed') { c++; continue; }
 
       let effectiveType = cell.type === 'wild' ? null : cell.type;
       let end = c + 1;
       while (end < COLS) {
         const next = current[MAIN_ROW][end];
         if (!next) break;
-        if (next.type === 'cursed') break;
         if (next.type === 'wild') { end++; continue; }
         if (effectiveType === null) { effectiveType = next.type; end++; continue; }
         if (next.type === effectiveType) { end++; continue; }

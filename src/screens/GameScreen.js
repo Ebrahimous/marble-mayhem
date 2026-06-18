@@ -551,38 +551,37 @@ function gameReducer(state, action) {
       // appearing before the player has had a chance to defuse the first.
       const hasTbomb = Object.values(state.powerUps).some(p => p.type === 'tbomb');
       const roll = Math.random();
-      // Weights (no tbomb): freeze 25%, bomb 20%, tbomb 18%, wild 12%, cursed 10%, lightning 7%, multiplier 5%, colorbomb 3%
-      // Weights (tbomb active): freeze 32%, bomb 27%, wild 17%, cursed 12%, lightning 8%, multiplier 4%
+      // Weights (no tbomb): freeze 28%, bomb 22%, tbomb 20%, wild 12%, lightning 8%, multiplier 5%, colorbomb 5%
+      // Weights (tbomb active): freeze 35%, bomb 30%, wild 18%, lightning 10%, multiplier 4%, colorbomb 3%
       let type;
       if (hasTbomb) {
-        type = roll < 0.32 ? 'freeze'
-             : roll < 0.59 ? 'bomb'
-             : roll < 0.76 ? 'wild'
-             : roll < 0.88 ? 'cursed'
-             : roll < 0.96 ? 'lightning'
-             :                'multiplier';
-      } else {
-        type = roll < 0.25 ? 'freeze'
-             : roll < 0.45 ? 'bomb'
-             : roll < 0.63 ? 'tbomb'
-             : roll < 0.75 ? 'wild'
-             : roll < 0.85 ? 'cursed'
-             : roll < 0.92 ? 'lightning'
+        type = roll < 0.35 ? 'freeze'
+             : roll < 0.65 ? 'bomb'
+             : roll < 0.83 ? 'wild'
+             : roll < 0.93 ? 'lightning'
              : roll < 0.97 ? 'multiplier'
+             :                'colorbomb';
+      } else {
+        type = roll < 0.28 ? 'freeze'
+             : roll < 0.50 ? 'bomb'
+             : roll < 0.70 ? 'tbomb'
+             : roll < 0.82 ? 'wild'
+             : roll < 0.90 ? 'lightning'
+             : roll < 0.95 ? 'multiplier'
              :                'colorbomb';
       }
 
-      // Wild or cursed ball: mark the board ball's type so the engine sees it.
-      if (type === 'wild' || type === 'cursed') {
+      // Wild ball: mark the board ball's type as 'wild' so the engine sees it.
+      if (type === 'wild') {
         const newBoards = state.boards.map((brd, bi) =>
           bi !== 0 ? brd : brd.map(row =>
-            row.map(b => (b && b.id === id) ? { ...b, type } : b)
+            row.map(b => (b && b.id === id) ? { ...b, type: 'wild' } : b)
           )
         );
         return {
           ...state,
           boards: newBoards,
-          powerUps: { ...state.powerUps, [id]: { type, timer: null } },
+          powerUps: { ...state.powerUps, [id]: { type: 'wild', timer: null } },
         };
       }
 
@@ -1087,7 +1086,6 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
            : pu.type === 'lightning' ? '⚡'
            : pu.type === 'multiplier'? '×2'
            : pu.type === 'colorbomb' ? '🎨'
-           : pu.type === 'cursed'    ? '🪨'
            : '?'}
           </Text>
         )}
@@ -1107,7 +1105,6 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
         pu.type === 'lightning'  && styles.puGlowLightning,
         pu.type === 'multiplier' && styles.puGlowMultiplier,
         pu.type === 'colorbomb'  && styles.puGlowColorbomb,
-        pu.type === 'cursed'     && styles.puGlowCursed,
         { borderRadius: cellSize * 0.5, width: cellSize - 2, height: cellSize - 2 },
       ]} pointerEvents="none" />
     ) : null;
@@ -2105,7 +2102,6 @@ export default function GameScreen({ navigation, route }) {
             <View style={styles.zenBarTrack}>
               <View style={[styles.zenBarFill, { width: `${Math.round((zenXP / zenXPRequired) * 100)}%` }]} />
             </View>
-            <Text style={styles.zenXpTxt}>{zenXP}/{zenXPRequired} XP</Text>
           </View>
         )}
 
@@ -2351,9 +2347,8 @@ const styles = StyleSheet.create({
   // ── Zen Mode progress bar ──────────────────────────────────────────────────
   zenProgressRow:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 3, gap: 8, borderBottomWidth: 1, borderBottomColor: '#0D0D22' },
   zenLevelTxt:     { color: '#2ED573', fontSize: 10, fontWeight: 'bold', letterSpacing: 1, minWidth: 34 },
-  zenBarTrack:     { flex: 1, height: 5, backgroundColor: '#1A1A38', borderRadius: 3, overflow: 'hidden' },
-  zenBarFill:      { height: '100%', backgroundColor: '#2ED573', borderRadius: 3 },
-  zenXpTxt:        { color: '#333', fontSize: 9, minWidth: 54, textAlign: 'right' },
+  zenBarTrack:     { flex: 1, height: 7, backgroundColor: '#1A1A38', borderRadius: 4, overflow: 'hidden' },
+  zenBarFill:      { height: '100%', backgroundColor: '#2ED573', borderRadius: 4 },
   zenLevelReached: { color: '#2ED573', fontSize: 14, fontWeight: 'bold', textAlign: 'center', marginTop: 8, letterSpacing: 1 },
   goBtnEndSession: { borderColor: '#FF6B35', borderWidth: 1.5, backgroundColor: 'transparent' },
 
@@ -2648,13 +2643,6 @@ const styles = StyleSheet.create({
     ...Platform.select({
       web: { boxShadow: '0 0 10px 3px rgba(224,64,251,0.8)' },
       default: { shadowColor: '#E040FB', shadowOpacity: 0.9, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
-    }),
-  },
-  puGlowCursed: {
-    borderColor: '#8a8880',
-    ...Platform.select({
-      web: { boxShadow: '0 0 7px 2px rgba(138,136,128,0.6)' },
-      default: { shadowColor: '#8a8880', shadowOpacity: 0.7, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
     }),
   },
 

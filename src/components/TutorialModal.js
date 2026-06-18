@@ -63,7 +63,7 @@ const STEPS = [
   },
   {
     title: 'Mayhem power-ups',
-    body:  'Mayhem spawns special balls: ❄ freezes the timer, 💥 blasts a 3×3 area, ⚡ clears a whole column, ×2 doubles your score, 🪨 blocks a slot until destroyed.',
+    body:  'Mayhem spawns special balls: ❄ freezes the timer, 💥 blasts a 3×3 area, ⚡ clears a whole column, ×2 doubles your score, 🎨 clears all balls of one color.',
   },
 ];
 
