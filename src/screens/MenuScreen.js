@@ -631,4 +631,3 @@ const styles = StyleSheet.create({
   toggleOptionTxt: { color: '#666', fontSize: 12, fontWeight: 'bold' },
   toggleOptionTxtActive: { color: '#FFF' },
 });
-                                                                              
