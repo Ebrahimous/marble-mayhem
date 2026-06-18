@@ -1718,6 +1718,7 @@ export default function GameScreen({ navigation, route }) {
 
   // Leaderboard name-entry state (shown in game-over overlay when score qualifies)
   const [showNameEntry, setShowNameEntry] = useState(false);
+  const [isNewBest, setIsNewBest] = useState(false);
   const [lbName, setLbName] = useState('');
   const [lbSaved, setLbSaved] = useState(false);
   const [lbSaveError, setLbSaveError] = useState(null);
@@ -1733,6 +1734,7 @@ export default function GameScreen({ navigation, route }) {
       setShowNameEntry(false);
       setLbSaved(false);
       setLbSaveError(null);
+      setIsNewBest(false);
       // Re-load saved name instead of blanking it, so it's pre-filled each game
       AsyncStorage.getItem('lbPlayerName').then(v => setLbName(v || ''));
     }
@@ -1756,6 +1758,7 @@ export default function GameScreen({ navigation, route }) {
       if (score > prevBest) {
         AsyncStorage.setItem(key, String(score));
         setBestScore(score);
+        setIsNewBest(true);
       }
     });
   }, [isSolo, mode, state.scores[0]]);
@@ -1868,16 +1871,17 @@ export default function GameScreen({ navigation, route }) {
     if (!isSolo) sfx.playPenalty();
   }, [state.lastMatch]);
 
-  // Check whether the final score qualifies for the per-mode leaderboard
+  // Show name-entry only when the player just beat their personal best.
+  // No point asking for a name when the run didn't set a new record.
   useEffect(() => {
     if (!state.gameOver || !isSolo) return;
     const score = state.scores[0];
+    if (!isNewBest || score <= 0) return; // not a new personal best — skip
     scoreQualifies(`${mode}-${ballCount}`, score)
       .then(qualifies => { if (qualifies) setShowNameEntry(true); })
       .catch(() => {
-        // Firestore unavailable — still show prompt if score is non-zero
-        // so the player can at least try to save (save will show an error if it fails)
-        if (score > 0) setShowNameEntry(true);
+        // Firestore unavailable — show prompt anyway so they can try to save
+        setShowNameEntry(true);
       });
   }, [state.gameOver]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2177,8 +2181,10 @@ export default function GameScreen({ navigation, route }) {
                 </View>
                 <Text style={styles.goScoreSep}>—</Text>
                 <View style={styles.goScoreCol}>
-                  <Text style={styles.goScoreLabel}>BEST</Text>
-                  <Text style={styles.goScoreVal}>{bestScore}</Text>
+                  <Text style={[styles.goScoreLabel, isNewBest && styles.newBestLabel]}>
+                    {isNewBest ? '🏆 NEW BEST' : 'BEST'}
+                  </Text>
+                  <Text style={[styles.goScoreVal, isNewBest && styles.newBestVal]}>{bestScore}</Text>
                 </View>
               </View>
             </>
@@ -2695,6 +2701,8 @@ const styles = StyleSheet.create({
   goScoreLabel: { color: '#666', fontSize: 12, letterSpacing: 1 },
   goScoreVal:   { color: '#FFF', fontSize: 40, fontWeight: 'bold' },
   goScoreSep:   { color: '#333', fontSize: 24, marginHorizontal: 16 },
+  newBestLabel: { color: '#FFD700' },
+  newBestVal:   { color: '#FFD700' },
   goBtn: {
     backgroundColor: '#1E90FF',
     borderRadius: 12,
