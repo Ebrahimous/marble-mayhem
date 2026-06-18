@@ -537,8 +537,8 @@ const styles = StyleSheet.create({
   bottomLinks: { alignItems: 'center', gap: 2 },
   lbLink:      { paddingVertical: 8, paddingHorizontal: 16 },
   lbLinkTxt:   { color: '#FFD700', fontSize: 15, fontWeight: 'bold', letterSpacing: 0.5 },
-  helpLink:    { paddingVertical: 8 },
-  helpLinkTxt: { color: '#333', fontSize: 14 },
+  helpLink:    { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#2A2A50' },
+  helpLinkTxt: { color: '#AAA', fontSize: 14 },
 
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   sheet: {

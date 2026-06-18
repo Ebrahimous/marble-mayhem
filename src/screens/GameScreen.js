@@ -270,11 +270,36 @@ function applySlide(state, playerIdx, slidedBoard) {
                 const chainPu = newPowerUps[ball.id];
                 delete newPowerUps[ball.id]; // consume it
                 if (chainPu.type === 'freeze') {
-                  freezeLeft += 5; // freeze power-up caught in blast → activates
+                  freezeLeft += 5;
                 } else if (chainPu.type === 'bomb') {
                   blastQueue.push({ row: r, col: c }); // chain explosion
                 } else if (chainPu.type === 'tbomb') {
-                  lastTbombDefuse += 1; // tbomb destroyed by blast — no game over
+                  lastTbombDefuse += 1;
+                } else if (chainPu.type === 'multiplier') {
+                  multiplierLeft = 8; // activate 2× multiplier
+                } else if (chainPu.type === 'lightning') {
+                  // Clear entire column directly into destroyedKeys
+                  for (let lr = 0; lr < ROWS; lr++) {
+                    const lKey = `${lr},${c}`;
+                    if (!destroyedKeys.has(lKey)) {
+                      destroyedKeys.add(lKey);
+                      if (blastBoard[lr][c]) { scores[playerIdx] += SCORE_PER_BALL; blastGain += SCORE_PER_BALL; }
+                    }
+                  }
+                } else if (chainPu.type === 'colorbomb') {
+                  // Destroy all balls of the target color
+                  for (let cbR = 0; cbR < ROWS; cbR++) {
+                    for (let cbC = 0; cbC < COLS; cbC++) {
+                      const cbBall = blastBoard[cbR][cbC];
+                      if (cbBall && cbBall.type === chainPu.targetColor) {
+                        const cbKey = `${cbR},${cbC}`;
+                        if (!destroyedKeys.has(cbKey)) {
+                          destroyedKeys.add(cbKey);
+                          scores[playerIdx] += SCORE_PER_BALL; blastGain += SCORE_PER_BALL;
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -315,7 +340,18 @@ function applySlide(state, playerIdx, slidedBoard) {
         let bonus = 0;
         let lightBoard = blastBoard.map(row => [...row]);
         for (let r = 0; r < ROWS; r++) {
-          if (lightBoard[r][lCol]) { bonus += SCORE_PER_BALL; lightBoard[r][lCol] = null; }
+          const lBall = lightBoard[r][lCol];
+          if (lBall) {
+            bonus += SCORE_PER_BALL;
+            if (newPowerUps[lBall.id]) {
+              const lPu = newPowerUps[lBall.id];
+              delete newPowerUps[lBall.id];
+              if (lPu.type === 'freeze')      freezeLeft += 5;
+              else if (lPu.type === 'multiplier') multiplierLeft = 8;
+              else if (lPu.type === 'tbomb')   lastTbombDefuse += 1;
+            }
+            lightBoard[r][lCol] = null;
+          }
         }
         // Gravity collapses the remaining balls, then refill from top
         lightBoard = applyGravity(lightBoard);
@@ -336,7 +372,17 @@ function applySlide(state, playerIdx, slidedBoard) {
         let bonus = 0;
         let cbBoard = blastBoard.map(row =>
           row.map(ball => {
-            if (ball && ball.type === target) { bonus += SCORE_PER_BALL; return null; }
+            if (ball && ball.type === target) {
+              bonus += SCORE_PER_BALL;
+              if (newPowerUps[ball.id]) {
+                const cbPu = newPowerUps[ball.id];
+                delete newPowerUps[ball.id];
+                if (cbPu.type === 'freeze')      freezeLeft += 5;
+                else if (cbPu.type === 'multiplier') multiplierLeft = 8;
+                else if (cbPu.type === 'tbomb')   lastTbombDefuse += 1;
+              }
+              return null;
+            }
             return ball;
           })
         );
