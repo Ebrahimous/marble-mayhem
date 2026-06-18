@@ -551,37 +551,38 @@ function gameReducer(state, action) {
       // appearing before the player has had a chance to defuse the first.
       const hasTbomb = Object.values(state.powerUps).some(p => p.type === 'tbomb');
       const roll = Math.random();
-      // Weights (no tbomb): freeze 28%, bomb 22%, tbomb 20%, wild 12%, lightning 8%, multiplier 5%, colorbomb 5%
-      // Weights (tbomb active): freeze 35%, bomb 30%, wild 18%, lightning 10%, multiplier 4%, colorbomb 3%
+      // Weights (no tbomb): freeze 25%, bomb 20%, tbomb 18%, wild 12%, cursed 10%, lightning 7%, multiplier 5%, colorbomb 3%
+      // Weights (tbomb active): freeze 32%, bomb 27%, wild 17%, cursed 12%, lightning 8%, multiplier 4%
       let type;
       if (hasTbomb) {
-        type = roll < 0.35 ? 'freeze'
-             : roll < 0.65 ? 'bomb'
-             : roll < 0.83 ? 'wild'
-             : roll < 0.93 ? 'lightning'
-             : roll < 0.97 ? 'multiplier'
-             :                'colorbomb';
+        type = roll < 0.32 ? 'freeze'
+             : roll < 0.59 ? 'bomb'
+             : roll < 0.76 ? 'wild'
+             : roll < 0.88 ? 'cursed'
+             : roll < 0.96 ? 'lightning'
+             :                'multiplier';
       } else {
-        type = roll < 0.28 ? 'freeze'
-             : roll < 0.50 ? 'bomb'
-             : roll < 0.70 ? 'tbomb'
-             : roll < 0.82 ? 'wild'
-             : roll < 0.90 ? 'lightning'
-             : roll < 0.95 ? 'multiplier'
+        type = roll < 0.25 ? 'freeze'
+             : roll < 0.45 ? 'bomb'
+             : roll < 0.63 ? 'tbomb'
+             : roll < 0.75 ? 'wild'
+             : roll < 0.85 ? 'cursed'
+             : roll < 0.92 ? 'lightning'
+             : roll < 0.97 ? 'multiplier'
              :                'colorbomb';
       }
 
-      // Wild ball: mark the board ball's type as 'wild' so the engine sees it.
-      if (type === 'wild') {
+      // Wild or cursed ball: mark the board ball's type so the engine sees it.
+      if (type === 'wild' || type === 'cursed') {
         const newBoards = state.boards.map((brd, bi) =>
           bi !== 0 ? brd : brd.map(row =>
-            row.map(b => (b && b.id === id) ? { ...b, type: 'wild' } : b)
+            row.map(b => (b && b.id === id) ? { ...b, type } : b)
           )
         );
         return {
           ...state,
           boards: newBoards,
-          powerUps: { ...state.powerUps, [id]: { type: 'wild', timer: null } },
+          powerUps: { ...state.powerUps, [id]: { type, timer: null } },
         };
       }
 
