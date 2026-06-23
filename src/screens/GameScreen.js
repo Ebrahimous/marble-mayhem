@@ -1757,6 +1757,32 @@ export default function GameScreen({ navigation, route }) {
     dangerGlowLoopRef.current = loop;
   }, [mode, state.powerUps, state.gameOver]);
 
+  // ── Countdown vignette (TIME BLAST) ──────────────────────────────────────────
+  // Pulses as a full-screen edge-darkening overlay; speed ramps up as time drops.
+  const vignetteAnim    = useRef(new Animated.Value(0)).current;
+  const vignetteLoopRef = useRef(null);
+  const vignettePhase = (mode !== 'mayhem' || state.gameOver) ? -1
+    : (state.timeLeft ?? 61) <= 10 ? 3
+    : (state.timeLeft ?? 61) <= 20 ? 2
+    : (state.timeLeft ?? 61) <= 30 ? 1 : 0;
+
+  useEffect(() => {
+    if (vignettePhase < 0) {
+      if (vignetteLoopRef.current) { vignetteLoopRef.current.stop(); vignetteLoopRef.current = null; }
+      vignetteAnim.setValue(0);
+      return;
+    }
+    const halfDur = [1100, 750, 500, 280][vignettePhase];
+    if (vignetteLoopRef.current) vignetteLoopRef.current.stop();
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(vignetteAnim, { toValue: 1, duration: halfDur, useNativeDriver: false }),
+      Animated.timing(vignetteAnim, { toValue: 0, duration: halfDur, useNativeDriver: false }),
+    ]));
+    vignetteLoopRef.current = loop;
+    loop.start();
+    return () => { if (vignetteLoopRef.current) { vignetteLoopRef.current.stop(); vignetteLoopRef.current = null; } };
+  }, [vignettePhase]);
+
   // ── Automatic ball-add timer (solo modes) ─────────────────────────────────────
   // Every BALL_ADD_INTERVAL ms, BALL_ADD_COUNT balls drop into random columns.
   // ballAddAnim animates 0→1 over that interval to drive the thin progress
@@ -2094,7 +2120,37 @@ export default function GameScreen({ navigation, route }) {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <View style={{ flex: 1, backgroundColor: '#080815', ...Platform.select({ web: { background: 'radial-gradient(ellipse at 50% 45%, #14143A 0%, #080815 68%)' } }) }}>
+    <View style={{ flex: 1,
+      backgroundColor: mode === 'mayhem' ? '#130808' : mode === 'relax' ? '#071518' : '#080815',
+      ...Platform.select({ web: {
+        background: mode === 'mayhem'
+          ? 'radial-gradient(ellipse at 50% 45%, #2A100A 0%, #130808 68%)'
+          : mode === 'relax'
+          ? 'radial-gradient(ellipse at 50% 45%, #0A2220 0%, #071518 68%)'
+          : 'radial-gradient(ellipse at 50% 45%, #14143A 0%, #080815 68%)',
+      }})
+    }}>
+
+      {/* ── Timer vignette (TIME BLAST) — pulses faster as time runs out ─── */}
+      {mode === 'mayhem' && (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, {
+            zIndex: 5,
+            opacity: vignetteAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [
+                (state.timeLeft ?? 61) <= 10 ? 0.12 : (state.timeLeft ?? 61) <= 30 ? 0.04 : 0,
+                (state.timeLeft ?? 61) <= 10 ? 0.72 : (state.timeLeft ?? 61) <= 20 ? 0.52 : (state.timeLeft ?? 61) <= 30 ? 0.38 : 0.22,
+              ],
+            }),
+            ...Platform.select({ web: {
+              background: 'radial-gradient(ellipse at 50% 50%, transparent 28%, rgba(210,15,0,0.88) 100%)',
+            }}),
+          }]}
+        />
+      )}
+
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[
