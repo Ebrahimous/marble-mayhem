@@ -2150,7 +2150,7 @@ export default function GameScreen({ navigation, route }) {
           <View style={styles.soloRow}>
             <BoardWithControls
               board={boards[0]}
-              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'ZEN' : mode === 'mayhem' ? 'MAYHEM' : 'CHALLENGE'}
+              label={mode === 'solo-time' ? 'TIME ATTACK' : mode === 'relax' ? 'RELAX' : mode === 'mayhem' ? 'TIME BLAST' : 'CHALLENGE'}
               onColSlide={handleP1ColSlide}
               onRowSlide={handleP1RowSlide}
               onCenterTap={handleP1CenterTap}

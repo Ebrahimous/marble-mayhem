@@ -13,8 +13,8 @@ import * as sfx from '../sounds';
 import { fetchLeaderboard } from '../firebase';
 
 export const LEADERBOARD_MODES = [
-  { key: 'mayhem', label: 'MAYHEM',   icon: '💥' },
-  { key: 'relax',  label: 'ZEN MODE', icon: '♾️' },
+  { key: 'mayhem', label: 'TIME BLAST', icon: '💣' },
+  { key: 'relax',  label: 'RELAX',    icon: '🌿' },
 ];
 
 const RANK_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
@@ -72,13 +72,13 @@ export default function LeaderboardScreen({ navigation }) {
         <Text style={styles.title}>🏆 LEADERBOARD</Text>
         {/* Ball count toggle — mirrors the menu setting */}
         <TouchableOpacity style={styles.ballToggle} onPress={toggleBallCount} activeOpacity={0.8}>
-          <Text style={styles.ballToggleLabel}>BALLS</Text>
+          <Text style={styles.ballToggleLabel}>DIFFICULTY</Text>
           <View style={styles.ballPill}>
             <View style={[styles.ballOption, ballCount === 5 && styles.ballOptionActive]}>
-              <Text style={[styles.ballOptionTxt, ballCount === 5 && styles.ballOptionTxtActive]}>5</Text>
+              <Text style={[styles.ballOptionTxt, ballCount === 5 && styles.ballOptionTxtActive]}>EASY</Text>
             </View>
             <View style={[styles.ballOption, ballCount === 6 && styles.ballOptionActive]}>
-              <Text style={[styles.ballOptionTxt, ballCount === 6 && styles.ballOptionTxtActive]}>6</Text>
+              <Text style={[styles.ballOptionTxt, ballCount === 6 && styles.ballOptionTxtActive]}>HARD</Text>
             </View>
           </View>
         </TouchableOpacity>
@@ -115,7 +115,7 @@ export default function LeaderboardScreen({ navigation }) {
       ) : entries.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>📭</Text>
-          <Text style={styles.emptyText}>No scores yet for {activeLabel} ({ballCount} balls).</Text>
+          <Text style={styles.emptyText}>No scores yet for {activeLabel} ({ballCount === 5 ? 'Easy' : 'Hard'}).</Text>
           <Text style={styles.emptyHint}>Play a game to get on the board!</Text>
         </View>
       ) : (

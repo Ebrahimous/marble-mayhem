@@ -106,7 +106,7 @@ export default function MenuScreen({ navigation }) {
   };
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: ballCount === 6 ? '#0F0818' : '#080815' }]}>
 
       {/* Settings button */}
       <TouchableOpacity
@@ -123,13 +123,13 @@ export default function MenuScreen({ navigation }) {
         onPress={toggleBallCount}
         activeOpacity={0.8}
       >
-        <Text style={styles.difficultyLabel}>BALLS</Text>
+        <Text style={styles.difficultyLabel}>DIFFICULTY</Text>
         <View style={styles.difficultyPill}>
           <View style={[styles.difficultyOption, ballCount === 5 && styles.difficultyOptionActive]}>
-            <Text style={[styles.difficultyOptionTxt, ballCount === 5 && styles.difficultyOptionTxtActive]}>5</Text>
+            <Text style={[styles.difficultyOptionTxt, ballCount === 5 && styles.difficultyOptionTxtActive]}>EASY</Text>
           </View>
           <View style={[styles.difficultyOption, ballCount === 6 && styles.difficultyOptionActive]}>
-            <Text style={[styles.difficultyOptionTxt, ballCount === 6 && styles.difficultyOptionTxtActive]}>6</Text>
+            <Text style={[styles.difficultyOptionTxt, ballCount === 6 && styles.difficultyOptionTxtActive]}>HARD</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -319,9 +319,9 @@ export default function MenuScreen({ navigation }) {
               onPress={() => { setSolo(false); play('mayhem'); }}
               activeOpacity={0.8}
             >
-              <Text style={styles.modeBtnIcon}>💥</Text>
+              <Text style={styles.modeBtnIcon}>💣⏱</Text>
               <View>
-                <Text style={styles.modeBtnLabel}>MAYHEM</Text>
+                <Text style={styles.modeBtnLabel}>TIME BLAST</Text>
                 <Text style={styles.modeBtnSub}>1 minute · power-ups · timed bombs</Text>
                 {bestScores['mayhem'] > 0 && (
                   <Text style={styles.modeBtnBest}>Best: {bestScores['mayhem'].toLocaleString()}</Text>
@@ -334,9 +334,9 @@ export default function MenuScreen({ navigation }) {
               onPress={() => { setSolo(false); play('relax'); }}
               activeOpacity={0.8}
             >
-              <Text style={styles.modeBtnIcon}>♾️</Text>
+              <Text style={styles.modeBtnIcon}>🌿</Text>
               <View>
-                <Text style={styles.modeBtnLabel}>ZEN MODE</Text>
+                <Text style={styles.modeBtnLabel}>RELAX</Text>
                 <Text style={styles.modeBtnSub}>Full board · no timer · just match</Text>
                 {bestScores['relax'] > 0 && (
                   <Text style={styles.modeBtnBest}>Best: {bestScores['relax'].toLocaleString()}</Text>
@@ -408,7 +408,6 @@ export default function MenuScreen({ navigation }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#080815',
     alignItems: 'center',
     justifyContent: 'space-evenly',
   },
