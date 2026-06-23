@@ -1913,18 +1913,25 @@ export default function GameScreen({ navigation, route }) {
   // ── Leaderboard save ─────────────────────────────────────────────────────────
   const saveToLeaderboard = useCallback(async () => {
     const score = stateRef.current.scores[0];
-    const name = lbName.trim() || 'Player';
+    const name  = lbName.trim() || 'Player';
     setLbSaveError(null);
     try {
-      await saveScore(`${mode}-${ballCount}`, name, score);
-      AsyncStorage.setItem('lbPlayerName', name); // remember for next time
+      await AsyncStorage.setItem('lbPlayerName', name); // always persist name
+      let savedToBoard = false;
+      if (isNewBest && score > 0) {
+        const qualifies = await scoreQualifies(`${mode}-${ballCount}`, score).catch(() => true);
+        if (qualifies) {
+          await saveScore(`${mode}-${ballCount}`, name, score);
+          savedToBoard = true;
+        }
+      }
       setShowNameEntry(false);
-      setLbSaved(true);
+      if (savedToBoard) setLbSaved(true);
       sfx.playClick();
     } catch (e) {
       setLbSaveError(`Could not save: ${e?.code ?? e?.message ?? 'unknown error'}`);
     }
-  }, [lbName, mode]);
+  }, [lbName, mode, isNewBest]);
 
   // ── Sound effects: matches, chains, penalties, game over ─────────────────────
   useEffect(() => {
@@ -1939,18 +1946,21 @@ export default function GameScreen({ navigation, route }) {
     if (!isSolo) sfx.playPenalty();
   }, [state.lastMatch]);
 
-  // Show name-entry only when the player just beat their personal best.
-  // No point asking for a name when the run didn't set a new record.
+  // Show name-entry when:
+  //   a) player just beat their best AND qualifies for leaderboard, OR
+  //   b) player has never set a name (first game — prompt so future runs are pre-filled).
   useEffect(() => {
     if (!state.gameOver || !isSolo) return;
     const score = state.scores[0];
-    if (!isNewBest || score <= 0) return; // not a new personal best — skip
+    // First-time player: prompt regardless of score
+    if (!lbName) {
+      setShowNameEntry(true);
+      return;
+    }
+    if (!isNewBest || score <= 0) return;
     scoreQualifies(`${mode}-${ballCount}`, score)
       .then(qualifies => { if (qualifies) setShowNameEntry(true); })
-      .catch(() => {
-        // Firestore unavailable — show prompt anyway so they can try to save
-        setShowNameEntry(true);
-      });
+      .catch(() => { setShowNameEntry(true); });
   }, [state.gameOver]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -1977,6 +1987,8 @@ export default function GameScreen({ navigation, route }) {
   const mayhemOverReason = state.mayhemOverReason ?? null;
   const lastBombBlast   = state.lastBombBlast ?? null;
   const lastTbombDefuse = state.lastTbombDefuse ?? 0;
+  // Consecutive-matching-move streak (already drives score multiplier)
+  const streakCombo = isSolo ? (state.combos?.[0] ?? 0) : 0;
 
   // ── Power-up sound effects ─────────────────────────────────────────────────────
   // Freeze: play when freezeLeft transitions from 0 to positive (i.e. freeze activated)
@@ -2018,6 +2030,34 @@ export default function GameScreen({ navigation, route }) {
       ]).start();
     }
     prevScoreRef.current = s;
+  }, [scores[0]]);
+
+  // ── Animated score tick-up (#7) ───────────────────────────────────────────────
+  // Displayed score ticks smoothly toward the real score rather than jumping.
+  const displayedScoreRef = useRef(0);
+  const [displayedScore, setDisplayedScore]   = useState(0);
+  const scoreTickRafRef   = useRef(null);
+  useEffect(() => {
+    const target = scores[0];
+    const start  = displayedScoreRef.current;
+    if (target === start) return;
+    const diff     = target - start;
+    const duration = Math.min(700, Math.max(180, Math.abs(diff) * 1.5));
+    const startTime = Date.now();
+    const tick = () => {
+      const elapsed  = Date.now() - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      const eased    = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+      const current  = Math.round(start + diff * eased);
+      displayedScoreRef.current = current;
+      setDisplayedScore(current);
+      if (progress < 1) {
+        scoreTickRafRef.current = requestAnimationFrame(tick);
+      }
+    };
+    if (scoreTickRafRef.current) cancelAnimationFrame(scoreTickRafRef.current);
+    scoreTickRafRef.current = requestAnimationFrame(tick);
+    return () => { if (scoreTickRafRef.current) cancelAnimationFrame(scoreTickRafRef.current); };
   }, [scores[0]]);
   // ── Chain popup animation ─────────────────────────────────────────────────────
   const chainPopOpacity = useRef(new Animated.Value(0)).current;
@@ -2063,7 +2103,7 @@ export default function GameScreen({ navigation, route }) {
             <>
               <View style={styles.scoreBlock}>
                 <Text style={styles.scoreLabel}>SCORE</Text>
-                <Animated.Text style={[styles.scoreVal, { transform: [{ scale: scorePop }] }]}>{scores[0]}</Animated.Text>
+                <Animated.Text style={[styles.scoreVal, { transform: [{ scale: scorePop }] }]}>{displayedScore}</Animated.Text>
               </View>
 
 
@@ -2145,6 +2185,13 @@ export default function GameScreen({ navigation, route }) {
           </View>
         )}
 
+        {/* Streak / combo indicator — shown when the player has a consecutive matching streak */}
+        {isSolo && streakCombo >= 2 && (
+          <View style={styles.streakRow}>
+            <Text style={styles.streakTxt}>🔥 ×{streakCombo} STREAK</Text>
+          </View>
+        )}
+
         {/* Boards */}
         {isSolo ? (
           <View style={styles.soloRow}>
@@ -2203,6 +2250,20 @@ export default function GameScreen({ navigation, route }) {
         )}
 
       </ScrollView>
+
+      {/* Chain popup overlay — appears briefly above board on multi-chain matches */}
+      {isSolo && (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.chainPopOverlay, { opacity: chainPopOpacity }]}
+        >
+          <Animated.Text
+            style={[styles.chainPopText, { transform: [{ scale: chainPopScale }] }]}
+          >
+            {chainPopLabel}
+          </Animated.Text>
+        </Animated.View>
+      )}
 
       {/* Mayhem danger border — full-screen pulsing red ring when a timed bomb is active */}
       {mode === 'mayhem' && (
@@ -2304,10 +2365,15 @@ export default function GameScreen({ navigation, route }) {
             </>
           )}
 
-          {/* Leaderboard name-entry (solo modes, qualifying score) */}
+          {/* Leaderboard name-entry: shown on qualifying score OR first-time player */}
           {isSolo && showNameEntry && !lbSaved && (
             <View style={styles.nameEntryBox}>
-              <Text style={styles.nameEntryTitle}>🏆 Enter your name</Text>
+              <Text style={styles.nameEntryTitle}>
+                {isNewBest ? '🏆 Enter your name' : '👤 Set your player name'}
+              </Text>
+              {!isNewBest && (
+                <Text style={styles.nameEntryHint}>Save your name for the leaderboard</Text>
+              )}
               <TextInput
                 style={styles.nameEntryInput}
                 value={lbName}
@@ -2320,7 +2386,9 @@ export default function GameScreen({ navigation, route }) {
                 autoFocus
               />
               <TouchableOpacity style={styles.nameSaveBtn} onPress={saveToLeaderboard}>
-                <Text style={styles.nameSaveBtnTxt}>Save to Leaderboard</Text>
+                <Text style={styles.nameSaveBtnTxt}>
+                  {isNewBest ? 'Save to Leaderboard' : 'Save Name'}
+                </Text>
               </TouchableOpacity>
               {lbSaveError && (
                 <Text style={styles.lbSaveErrorTxt}>{lbSaveError}</Text>
@@ -2717,6 +2785,23 @@ const styles = StyleSheet.create({
     }),
   },
 
+  // Streak/combo indicator row
+  streakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 3,
+  },
+  streakTxt: {
+    color: '#FF9B2E',
+    fontSize: 13,
+    fontWeight: 'bold',
+    letterSpacing: 1.5,
+    ...Platform.select({
+      web: { textShadow: '0 0 10px rgba(255,155,46,0.7)' },
+    }),
+  },
+
   chainPopOverlay: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
@@ -2777,8 +2862,14 @@ const styles = StyleSheet.create({
     color: '#FFD700',
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 12,
+    marginBottom: 4,
     letterSpacing: 1,
+  },
+  nameEntryHint: {
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 12,
+    textAlign: 'center',
   },
   nameEntryInput: {
     width: '100%',
