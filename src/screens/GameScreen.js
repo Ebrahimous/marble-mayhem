@@ -837,24 +837,35 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
         // Newly-spawned ball: slide in from just beyond the edge it entered
         // from (top of the board for 'top' spawns, bottom for 'bottom'
         // spawns — defaulting to 'top' for balls with no recorded side,
-        // e.g. the initial board fill), fading in as it arrives.
+        // e.g. the initial board fill).
+        //
+        // In RELAX mode (colWrap), spawn at full opacity so a rapid second
+        // move can't interrupt the fade-in and leave a ball stuck dark.
+        // The boardGrid overflow:hidden clips the ball above the top edge,
+        // giving the same visual "sliding in" effect without the opacity risk.
         const startTop = ball.spawnSide === 'bottom'
           ? ROWS * cellSize     // start below the entire board
           : -cellSize;          // start above the entire board
+        const startOpacity = colWrap ? 1 : 0; // RELAX: full opacity from the start
         entry = {
           top: new Animated.Value(startTop),
           left: new Animated.Value(targetLeft),
           scaleY: new Animated.Value(1),
-          opacity: new Animated.Value(0),
+          opacity: new Animated.Value(startOpacity),
           type: ball.type,
           row, col,
         };
         animsRef.current.set(ball.id, entry);
         sfx.playSpawn(ball.spawnSide);
-        moves.push(Animated.parallel([
-          Animated.timing(entry.top,     { toValue: targetTop, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false }),
-          Animated.timing(entry.opacity, { toValue: 1,         duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false }),
-        ]));
+        const spawnAnims = [
+          Animated.timing(entry.top, { toValue: targetTop, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false }),
+        ];
+        if (!colWrap) {
+          spawnAnims.push(
+            Animated.timing(entry.opacity, { toValue: 1, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
+          );
+        }
+        moves.push(Animated.parallel(spawnAnims));
         bounces.push(entry.scaleY);
       } else {
         entry.type = ball.type;
