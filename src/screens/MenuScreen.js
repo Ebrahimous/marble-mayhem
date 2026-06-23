@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  View, Text, TouchableOpacity, Animated,
-  StyleSheet, Modal, Platform,
+  View, Text, TouchableOpacity, Animated, Easing,
+  StyleSheet, Modal, Platform, useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,8 +21,22 @@ const SHOW_MULTIPLAYER_MODES = false;
 // Challenge best.
 const SOLO_MODES = ['solo-time', 'relax', 'mayhem'];
 
+// Background floating ball configuration — each drifts from bottom to top
+const BG_BALLS = [
+  { left: '8%',  type: 'red',    duration: 7000, delay: 0,    size: 32 },
+  { left: '22%', type: 'blue',   duration: 9000, delay: 1400, size: 24 },
+  { left: '38%', type: 'green',  duration: 6500, delay: 2800, size: 28 },
+  { left: '55%', type: 'amber',  duration: 8200, delay: 700,  size: 20 },
+  { left: '72%', type: 'purple', duration: 7800, delay: 3600, size: 36 },
+  { left: '88%', type: 'red',    duration: 8800, delay: 1800, size: 22 },
+  { left: '15%', type: 'amber',  duration: 6200, delay: 4400, size: 26 },
+  { left: '65%', type: 'blue',   duration: 7400, delay: 2100, size: 30 },
+  { left: '48%', type: 'purple', duration: 9200, delay: 500,  size: 18 },
+];
+
 export default function MenuScreen({ navigation }) {
   const insets    = useSafeAreaInsets();
+  const { height: winHeight } = useWindowDimensions();
   const [bestScores, setBestScores] = useState({});
   const [showHelp, setHelp]       = useState(false);
   const [showSolo, setSolo]       = useState(false);
@@ -34,15 +48,81 @@ export default function MenuScreen({ navigation }) {
   const [hapticsOn, setHapticsOn] = useState(true);
   const [aiDifficulty, setAiDifficulty] = useState(DEFAULT_AI_DIFFICULTY);
 
-  // Pulsing glow on the PLAY button — starts immediately, runs forever
-  const playPulse = useRef(new Animated.Value(0)).current;
+  // ── Floating background balls ─────────────────────────────────────────────
+  const bgBallAnims = useRef(BG_BALLS.map(() => new Animated.Value(0))).current;
   useEffect(() => {
-    const loop = Animated.loop(Animated.sequence([
+    const seqs = BG_BALLS.map((ball, i) => {
+      bgBallAnims[i].setValue(0);
+      const loop = Animated.loop(
+        Animated.timing(bgBallAnims[i], {
+          toValue: 1,
+          duration: ball.duration,
+          easing: Easing.linear,
+          useNativeDriver: false,
+        })
+      );
+      // Delay fires once, then the loop runs forever
+      const seq = Animated.sequence([Animated.delay(ball.delay), loop]);
+      seq.start();
+      return seq;
+    });
+    return () => seqs.forEach(s => s.stop());
+  }, []);
+
+  // ── Title glow + scale breath ─────────────────────────────────────────────
+  const titleGlow  = useRef(new Animated.Value(0)).current;
+  const titleScale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const gAnim = Animated.loop(Animated.sequence([
+      Animated.timing(titleGlow,  { toValue: 1,    duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+      Animated.timing(titleGlow,  { toValue: 0,    duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+    ]));
+    const sAnim = Animated.loop(Animated.sequence([
+      Animated.timing(titleScale, { toValue: 1.04, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+      Animated.timing(titleScale, { toValue: 1.0,  duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+    ]));
+    gAnim.start(); sAnim.start();
+    return () => { gAnim.stop(); sAnim.stop(); };
+  }, []);
+
+  // ── PLAY button: glow pulse + scale + shine sweep ─────────────────────────
+  const playPulse = useRef(new Animated.Value(0)).current;
+  const playScale = useRef(new Animated.Value(1)).current;
+  const playShine = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const glowLoop = Animated.loop(Animated.sequence([
       Animated.timing(playPulse, { toValue: 1, duration: 900, useNativeDriver: false }),
       Animated.timing(playPulse, { toValue: 0, duration: 900, useNativeDriver: false }),
     ]));
-    loop.start();
-    return () => loop.stop();
+    const scaleLoop = Animated.loop(Animated.sequence([
+      Animated.timing(playScale, { toValue: 1.03, duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+      Animated.timing(playScale, { toValue: 1.0,  duration: 900, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+    ]));
+    // Shine sweeps across every ~3 seconds
+    const shineLoop = Animated.loop(Animated.sequence([
+      Animated.delay(2500),
+      Animated.timing(playShine, { toValue: 1, duration: 500, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+      Animated.timing(playShine, { toValue: 0, duration: 0, useNativeDriver: false }),
+    ]));
+    glowLoop.start(); scaleLoop.start(); shineLoop.start();
+    return () => { glowLoop.stop(); scaleLoop.stop(); shineLoop.stop(); };
+  }, []);
+
+  // ── Ball row staggered bounce ─────────────────────────────────────────────
+  const ballBounce = useRef(Array.from({ length: 6 }, () => new Animated.Value(0))).current;
+  useEffect(() => {
+    const seqs = ballBounce.map((anim, i) => {
+      const loop = Animated.loop(Animated.sequence([
+        Animated.timing(anim, { toValue: -14, duration: 340, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 0,   duration: 340, easing: Easing.bounce,           useNativeDriver: false }),
+        Animated.delay(620), // pause at bottom before next bounce
+      ]));
+      // Initial stagger fires once, then loop runs with same period for all
+      const seq = Animated.sequence([Animated.delay(i * 190), loop]);
+      seq.start();
+      return seq;
+    });
+    return () => seqs.forEach(s => s.stop());
   }, []);
 
   useEffect(() => {
@@ -105,8 +185,33 @@ export default function MenuScreen({ navigation }) {
     play('ai', { aiDifficulty: difficulty });
   };
 
+  const activeBallTypes = ballCount === 6 ? BALL_TYPES_6 : BALL_TYPES_5;
+
   return (
     <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: ballCount === 6 ? '#0F0818' : '#080815' }]}>
+
+      {/* ── Floating background balls ────────────────────────────────────── */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {BG_BALLS.map((ball, i) => (
+          <Animated.View
+            key={i}
+            style={{
+              position: 'absolute',
+              left: ball.left,
+              top: 0,
+              opacity: 0.14,
+              transform: [{
+                translateY: bgBallAnims[i].interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [winHeight + ball.size, -(ball.size + 20)],
+                }),
+              }],
+            }}
+          >
+            <BallView type={ball.type} size={ball.size} />
+          </Animated.View>
+        ))}
+      </View>
 
       {/* Settings button */}
       <TouchableOpacity
@@ -134,21 +239,27 @@ export default function MenuScreen({ navigation }) {
         </View>
       </TouchableOpacity>
 
-      {/* Title */}
-      <View style={styles.titleBlock}>
+      {/* ── Title with glow layer + scale breath ────────────────────────── */}
+      <Animated.View style={[styles.titleBlock, { transform: [{ scale: titleScale }] }]}>
+        {/* Ambient glow behind title — opacity pulses with titleGlow */}
+        <Animated.View
+          style={[styles.titleGlowLayer, { opacity: titleGlow.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }) }]}
+          pointerEvents="none"
+        />
         <Text style={styles.titleTop}>MARBLE</Text>
         <Text style={styles.titleBot}>MAYHEM</Text>
-      </View>
+      </Animated.View>
 
-      {/* Ball decoration */}
+      {/* ── Animated ball decoration row ────────────────────────────────── */}
       <View style={styles.ballRow}>
-        {(ballCount === 6 ? BALL_TYPES_6 : BALL_TYPES_5).map((t, i) => (
-          <BallView key={i} type={t} size={44} />
+        {activeBallTypes.map((t, i) => (
+          <Animated.View key={t} style={{ transform: [{ translateY: ballBounce[i] }] }}>
+            <BallView type={t} size={48} />
+          </Animated.View>
         ))}
       </View>
 
-      {/* High score — best across all solo modes (each mode also shows its
-          own best in the Solo Mode picker below). */}
+      {/* High score — best across all solo modes */}
       {overallBest > 0 && (
         <View style={styles.highBox}>
           <Text style={styles.highLabel}>BEST SCORE</Text>
@@ -160,12 +271,12 @@ export default function MenuScreen({ navigation }) {
       <View style={styles.btnGroup}>
         <Text style={styles.modeTitle}>SELECT MODE</Text>
 
+        {/* PLAY button with scale pulse + shine sweep */}
         <Animated.View style={[styles.playBtnGlow, {
+          transform: [{ scale: playScale }],
           shadowOpacity: playPulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] }),
           ...Platform.select({ web: {
-            boxShadow: playPulse.interpolate
-              ? undefined   // interpolated boxShadow not supported on web — use static
-              : '0 0 24px 8px rgba(46,213,115,0.6)',
+            boxShadow: '0 0 24px 8px rgba(46,213,115,0.6)',
           }}),
         }]}>
           <TouchableOpacity
@@ -174,6 +285,13 @@ export default function MenuScreen({ navigation }) {
             activeOpacity={0.75}
           >
             <Text style={styles.playBtnText}>▶  PLAY</Text>
+            {/* Shine sweep stripe */}
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.playShine, {
+                left: playShine.interpolate({ inputRange: [0, 1], outputRange: ['-30%', '120%'] }),
+              }]}
+            />
           </TouchableOpacity>
         </Animated.View>
 
@@ -412,13 +530,50 @@ const styles = StyleSheet.create({
     justifyContent: 'space-evenly',
   },
 
-  titleBlock: { alignItems: 'center' },
-  titleTop: { color: '#1E90FF', fontSize: 52, fontWeight: 'bold', letterSpacing: 8, lineHeight: 58 },
-  titleBot: { color: '#FF4757', fontSize: 52, fontWeight: 'bold', letterSpacing: 8, lineHeight: 58 },
+  // ── Title ──────────────────────────────────────────────────────────────────
+  titleBlock: { alignItems: 'center', position: 'relative' },
+  // Ambient glow layer sits behind the title text and pulses
+  titleGlowLayer: {
+    position: 'absolute',
+    width: 340,
+    height: 150,
+    top: -24,
+    borderRadius: 70,
+    backgroundColor: 'transparent',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 0 70px 30px rgba(30,144,255,0.35), 0 30px 70px 20px rgba(255,71,87,0.3)',
+        filter: 'blur(14px)',
+      },
+    }),
+  },
+  titleTop: {
+    color: '#1E90FF',
+    fontSize: 52,
+    fontWeight: 'bold',
+    letterSpacing: 8,
+    lineHeight: 58,
+    ...Platform.select({
+      web: { textShadow: '0 0 18px rgba(30,144,255,0.75), 0 0 36px rgba(30,144,255,0.35)' },
+    }),
+  },
+  titleBot: {
+    color: '#FF4757',
+    fontSize: 52,
+    fontWeight: 'bold',
+    letterSpacing: 8,
+    lineHeight: 58,
+    ...Platform.select({
+      web: { textShadow: '0 0 18px rgba(255,71,87,0.75), 0 0 36px rgba(255,71,87,0.35)' },
+    }),
+  },
   subtitle: { color: '#444', fontSize: 12, letterSpacing: 2, marginTop: 6 },
 
-  ballRow: { flexDirection: 'row', gap: 8 },
+  // ── Ball row ───────────────────────────────────────────────────────────────
+  // Fixed height + bottom-align so bounce doesn't cause layout shift
+  ballRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end', height: 64 },
 
+  // ── Corner controls ────────────────────────────────────────────────────────
   settingsBtn: {
     position: 'absolute',
     left: 16,
@@ -449,22 +604,63 @@ const styles = StyleSheet.create({
     borderColor: '#252545',
     overflow: 'hidden',
   },
-  difficultyOption: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-  },
-  difficultyOptionActive: {
-    backgroundColor: '#1E90FF',
-  },
+  difficultyOption: { paddingVertical: 6, paddingHorizontal: 14 },
+  difficultyOptionActive: { backgroundColor: '#1E90FF' },
   difficultyOptionTxt: { color: '#666', fontSize: 14, fontWeight: 'bold' },
   difficultyOptionTxtActive: { color: '#FFF' },
 
+  // ── High score ─────────────────────────────────────────────────────────────
   highBox:   { alignItems: 'center' },
   highLabel: { color: '#444', fontSize: 10, letterSpacing: 2 },
-  highVal:   { color: '#FFD700', fontSize: 34, fontWeight: 'bold' },
+  highVal:   {
+    color: '#FFD700',
+    fontSize: 34,
+    fontWeight: 'bold',
+    ...Platform.select({
+      web: { textShadow: '0 0 14px rgba(255,215,0,0.6)' },
+    }),
+  },
 
+  // ── Mode buttons ───────────────────────────────────────────────────────────
   btnGroup:  { alignItems: 'center', width: '88%' },
   modeTitle: { color: '#333', fontSize: 11, letterSpacing: 2, marginBottom: 12 },
+
+  // PLAY button wrapper (carries shadow + scale transform)
+  playBtnGlow: {
+    width: '100%',
+    borderRadius: 18,
+    marginBottom: 16,
+    shadowColor: '#2ED573',
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 18,
+    elevation: 10,
+    ...Platform.select({ web: { boxShadow: '0 0 28px 10px rgba(46,213,115,0.6)' } }),
+  },
+  playBtn: {
+    backgroundColor: '#2ED573',
+    borderRadius: 18,
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    overflow: 'hidden',
+  },
+  playBtnText: {
+    color: '#0D1A12',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 6,
+    ...Platform.select({ web: { textShadow: '0 1px 0 rgba(255,255,255,0.2)' } }),
+  },
+  // Diagonal shine stripe that sweeps across the PLAY button
+  playShine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 55,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+    transform: [{ skewX: '-20deg' }],
+  },
 
   modeBtn: {
     flexDirection: 'row',
@@ -493,52 +689,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#2ED573',
     shadowColor: '#2ED573',
   },
-
-  // ── PLAY button ──────────────────────────────────────────────────────────
-  playBtnGlow: {
-    width: '100%',
-    borderRadius: 18,
-    marginBottom: 16,
-    shadowColor: '#2ED573',
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 18,
-    elevation: 10,
-    ...Platform.select({ web: { boxShadow: '0 0 22px 6px rgba(46,213,115,0.55)' } }),
-  },
-  playBtn: {
-    backgroundColor: '#2ED573',
-    borderRadius: 18,
-    paddingVertical: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  playBtnText: {
-    color: '#0D1A12',
-    fontSize: 26,
-    fontWeight: '900',
-    letterSpacing: 6,
-    ...Platform.select({ web: { textShadow: '0 1px 0 rgba(255,255,255,0.2)' } }),
-  },
-  modeBtnSelected: {
-    borderWidth: 2,
-    borderColor: '#FFD700',
-  },
-  modeBtnIcon:  { fontSize: 28 },
-  modeBtnLabel: { color: '#FFF', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
-  modeBtnSub:   { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 },
-  modeBtnBest:  { color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 2 },
-  modeBtnMayhem: { borderColor: '#FF6B35', borderWidth: 2 },
-  modeBtnCentered:    { justifyContent: 'center' },
+  modeBtnSelected: { borderWidth: 2, borderColor: '#FFD700' },
+  modeBtnMayhem:   { borderColor: '#FF6B35', borderWidth: 2 },
+  modeBtnIcon:     { fontSize: 28 },
+  modeBtnLabel:    { color: '#FFF', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
+  modeBtnSub:      { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 },
+  modeBtnBest:     { color: '#FFD700', fontSize: 11, fontWeight: 'bold', marginTop: 2 },
+  modeBtnCentered:     { justifyContent: 'center' },
   modeBtnTextCentered: { alignItems: 'center' },
-  modeBtnTextCenter:  { textAlign: 'center' },
+  modeBtnTextCenter:   { textAlign: 'center' },
 
+  // ── Bottom links ───────────────────────────────────────────────────────────
   bottomLinks: { alignItems: 'center', gap: 2 },
   lbLink:      { paddingVertical: 8, paddingHorizontal: 16 },
   lbLinkTxt:   { color: '#FFD700', fontSize: 15, fontWeight: 'bold', letterSpacing: 0.5 },
   helpLink:    { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#2A2A50' },
   helpLinkTxt: { color: '#AAA', fontSize: 14 },
 
+  // ── Modals ─────────────────────────────────────────────────────────────────
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: '#12122A',
@@ -548,7 +716,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     maxHeight: '80%',
   },
-  sheetTitle: { color: '#FFF', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
+  sheetTitle:    { color: '#FFF', fontSize: 20, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
   sheetSubtitle: { color: '#666', fontSize: 12, textAlign: 'center', marginTop: -12, marginBottom: 16, letterSpacing: 1 },
   sheetClose: {
     marginTop: 16,
@@ -565,12 +733,7 @@ const styles = StyleSheet.create({
   helpBody:  { color: '#777', fontSize: 13, lineHeight: 19 },
 
   // Settings
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 20,
-  },
+  settingRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 20 },
   settingLabel: { color: '#CCC', fontSize: 14, fontWeight: 'bold', marginBottom: 4 },
   settingDesc:  { color: '#777', fontSize: 13, lineHeight: 19 },
   togglePill: {
@@ -581,13 +744,8 @@ const styles = StyleSheet.create({
     borderColor: '#252545',
     overflow: 'hidden',
   },
-  toggleOption: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-  },
-  toggleOptionActive: {
-    backgroundColor: '#1E90FF',
-  },
-  toggleOptionTxt: { color: '#666', fontSize: 12, fontWeight: 'bold' },
-  toggleOptionTxtActive: { color: '#FFF' },
+  toggleOption:           { paddingVertical: 6, paddingHorizontal: 14 },
+  toggleOptionActive:     { backgroundColor: '#1E90FF' },
+  toggleOptionTxt:        { color: '#666', fontSize: 12, fontWeight: 'bold' },
+  toggleOptionTxtActive:  { color: '#FFF' },
 });
