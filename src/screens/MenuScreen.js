@@ -448,7 +448,7 @@ export default function MenuScreen({ navigation }) {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.modeBtn, styles.modeBtnAlt]}
+              style={[styles.modeBtn, styles.modeBtnAlt, styles.modeBtnRelax]}
               onPress={() => { setSolo(false); play('relax'); }}
               activeOpacity={0.8}
             >
@@ -690,7 +690,8 @@ const styles = StyleSheet.create({
     shadowColor: '#2ED573',
   },
   modeBtnSelected: { borderWidth: 2, borderColor: '#FFD700' },
-  modeBtnMayhem:   { borderColor: '#FF6B35', borderWidth: 2 },
+  modeBtnMayhem:   { borderColor: '#FF6B35', borderWidth: 2, backgroundColor: '#1E0904' },
+  modeBtnRelax:    { borderColor: '#2ED573', borderWidth: 2, backgroundColor: '#041A10' },
   modeBtnIcon:     { fontSize: 28 },
   modeBtnLabel:    { color: '#FFF', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   modeBtnSub:      { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 },
