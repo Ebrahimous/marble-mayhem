@@ -1438,30 +1438,27 @@ const BoardWithControls = React.memo(({
           // ── RELAX continuous scroll ───────────────────────────────────────
           const rd = relaxDragRef.current;
 
-          // If a match fired since the drag started, lock and kill the preview
+          // Stop dispatching if a match fired during this drag
           if (cbRef.current.lastMatchId !== rd.matchId) {
-            if (!rd.locked) {
-              rd.locked = true;
-              dragOffset.setValue(0);
-              dragAxisRef.current = null;
-              setDragInfo({ axis: null, index: -1, offset: dragOffset });
-            }
+            rd.locked = true;
             return;
           }
           if (rd.locked) return;
 
-          // Determine axis on the first significant movement
+          // Determine axis on first significant movement.
+          // We track axis in rd.axis but do NOT call setDragInfo — the dragOffset
+          // fractional preview conflicts with the ball position animations and
+          // causes visual doubling. Ball animations from each dispatch are the
+          // only visuals needed for continuous scroll.
           if (!dragAxisRef.current) {
             if (Math.max(absX, absY) < 6) return;
             if (absY >= absX) {
               dragAxisRef.current = 'col';
               rd.axis = 'col';
               rd.col = col;
-              setDragInfo({ axis: 'col', index: col, offset: dragOffset });
             } else if (row === MAIN_ROW) {
               dragAxisRef.current = 'row';
               rd.axis = 'row';
-              setDragInfo({ axis: 'row', index: MAIN_ROW, offset: dragOffset });
             } else {
               dragAxisRef.current = 'none';
               return;
@@ -1479,8 +1476,7 @@ const BoardWithControls = React.memo(({
               }
               rd.steps = totalSteps;
             }
-            // Show only the sub-cell fractional remainder
-            dragOffset.setValue(g.dy - rd.steps * cs);
+            // No dragOffset — ball animations handle the visual movement
           } else if (dragAxisRef.current === 'row') {
             const totalSteps = Math.trunc(g.dx / cs);
             const delta = totalSteps - rd.steps;
@@ -1491,7 +1487,6 @@ const BoardWithControls = React.memo(({
               }
               rd.steps = totalSteps;
             }
-            dragOffset.setValue(g.dx - rd.steps * cs);
           }
           return; // skip normal one-step preview below
         }
