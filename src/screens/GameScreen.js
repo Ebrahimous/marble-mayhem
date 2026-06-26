@@ -1306,6 +1306,7 @@ const TAP_THRESHOLD = 10;
 
 const BoardWithControls = React.memo(({
   board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch, colWrap, powerUps, freezeActive, lastBombBlast,
+  isRelaxMode = false, lastMatchId = 0, onRelaxMomentum,
 }) => {
   // Animate the freeze border in/out as freezeActive changes
   const freezeAnim = useRef(new Animated.Value(0)).current;
@@ -1361,11 +1362,15 @@ const BoardWithControls = React.memo(({
   const swipeThreshold = cellSize * 0.45;
 
   // Always-fresh callbacks/values without stale closure
-  const cbRef = useRef({ onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove });
-  cbRef.current = { onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove };
+  const cbRef = useRef({ onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove, isRelaxMode, lastMatchId, onRelaxMomentum });
+  cbRef.current = { onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove, isRelaxMode, lastMatchId, onRelaxMomentum };
 
   const gestureStart   = useRef({ col: 0, row: 0, x: 0 });
   const gestureHandled = useRef(false);
+
+  // RELAX continuous-scroll state: tracks steps already dispatched during the
+  // current drag so we can offset the visual by the fractional remainder only.
+  const relaxDragRef = useRef({ steps: 0, matchId: 0, locked: false, col: 0, axis: null });
 
   // Live touch-drag preview state: while dragging, `dragAxisRef` tracks
   // whether the gesture is sliding a column ('col') or the main row ('row'),
@@ -1407,11 +1412,21 @@ const BoardWithControls = React.memo(({
         gestureHandled.current = false;
         dragAxisRef.current = null;
         dragOffset.setValue(0);
+        // Reset RELAX scroll tracker for this gesture
+        if (cbRef.current.isRelaxMode) {
+          relaxDragRef.current = {
+            steps: 0, matchId: cbRef.current.lastMatchId, locked: false,
+            col: Math.min(COLS - 1, Math.max(0, Math.floor(x / cs))),
+            axis: null,
+          };
+        }
       },
 
       // Live-follow: as the finger moves, translate the dragged column (or
-      // main row) so it visually tracks the touch. No match resolution or
-      // dispatch happens here — that only occurs on release.
+      // main row) so it visually tracks the touch.
+      // RELAX mode: continuous scroll — dispatch a COL_SLIDE / ROW_SLIDE for
+      // every full cell crossed; show only the fractional remainder as dragOffset.
+      // Normal modes: clamp offset to one cell, dispatch only on release.
       onPanResponderMove: (_, g) => {
         if (cbRef.current.disabled) return;
         const cs = cbRef.current.cellSize;
@@ -1419,6 +1434,69 @@ const BoardWithControls = React.memo(({
         const absX = Math.abs(g.dx);
         const absY = Math.abs(g.dy);
 
+        if (cbRef.current.isRelaxMode) {
+          // ── RELAX continuous scroll ───────────────────────────────────────
+          const rd = relaxDragRef.current;
+
+          // If a match fired since the drag started, lock and kill the preview
+          if (cbRef.current.lastMatchId !== rd.matchId) {
+            if (!rd.locked) {
+              rd.locked = true;
+              dragOffset.setValue(0);
+              dragAxisRef.current = null;
+              setDragInfo({ axis: null, index: -1, offset: dragOffset });
+            }
+            return;
+          }
+          if (rd.locked) return;
+
+          // Determine axis on the first significant movement
+          if (!dragAxisRef.current) {
+            if (Math.max(absX, absY) < 6) return;
+            if (absY >= absX) {
+              dragAxisRef.current = 'col';
+              rd.axis = 'col';
+              rd.col = col;
+              setDragInfo({ axis: 'col', index: col, offset: dragOffset });
+            } else if (row === MAIN_ROW) {
+              dragAxisRef.current = 'row';
+              rd.axis = 'row';
+              setDragInfo({ axis: 'row', index: MAIN_ROW, offset: dragOffset });
+            } else {
+              dragAxisRef.current = 'none';
+              return;
+            }
+          }
+          if (dragAxisRef.current === 'none') return;
+
+          if (dragAxisRef.current === 'col') {
+            const totalSteps = Math.trunc(g.dy / cs);
+            const delta = totalSteps - rd.steps;
+            if (delta !== 0) {
+              const dir = delta > 0 ? 'down' : 'up';
+              for (let i = 0; i < Math.abs(delta); i++) {
+                cbRef.current.onColSlide(rd.col, dir);
+              }
+              rd.steps = totalSteps;
+            }
+            // Show only the sub-cell fractional remainder
+            dragOffset.setValue(g.dy - rd.steps * cs);
+          } else if (dragAxisRef.current === 'row') {
+            const totalSteps = Math.trunc(g.dx / cs);
+            const delta = totalSteps - rd.steps;
+            if (delta !== 0) {
+              const dir = delta > 0 ? 'right' : 'left';
+              for (let i = 0; i < Math.abs(delta); i++) {
+                cbRef.current.onRowSlide(dir);
+              }
+              rd.steps = totalSteps;
+            }
+            dragOffset.setValue(g.dx - rd.steps * cs);
+          }
+          return; // skip normal one-step preview below
+        }
+
+        // ── Normal (non-RELAX) one-step visual preview ────────────────────
         if (!dragAxisRef.current) {
           if (Math.max(absX, absY) < 6) return;
           if (absY >= absX) {
@@ -1440,6 +1518,17 @@ const BoardWithControls = React.memo(({
       },
 
       onPanResponderRelease: (_, g) => {
+        // ── RELAX: steps were already dispatched during drag; just add momentum ──
+        if (cbRef.current.isRelaxMode) {
+          const rd = relaxDragRef.current;
+          if (!rd.locked && rd.axis && cbRef.current.onRelaxMomentum) {
+            const velocity = rd.axis === 'col' ? g.vy : g.vx;
+            cbRef.current.onRelaxMomentum(rd.axis, rd.col, velocity);
+          }
+          resetDrag();
+          return;
+        }
+
         if (gestureHandled.current || cbRef.current.disabled) {
           resetDrag();
           return;
@@ -1643,6 +1732,9 @@ export default function GameScreen({ navigation, route }) {
   // Keep a ref to always-current state for the keyboard handler
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // RELAX continuous scroll: post-release momentum timer
+  const relaxMomentumTimerRef = useRef(null);
 
   // ── "Tap to move" setting (toggled in the Settings menu) ─────────────────────
   const [tapToMove, setTapToMove] = useState(false);
@@ -1987,6 +2079,38 @@ export default function GameScreen({ navigation, route }) {
     sfx.playMove();
     dispatch({ type: 'ROW_SLIDE', player: 1, dir });
   }, []);
+  // Post-release momentum for RELAX continuous scroll: fires more slides at
+  // FALL_DURATION intervals, decelerating, stopping when a match is detected.
+  const handleRelaxMomentum = useCallback((axis, col, velocity) => {
+    if (relaxMomentumTimerRef.current) {
+      clearTimeout(relaxMomentumTimerRef.current);
+      relaxMomentumTimerRef.current = null;
+    }
+    const STEP_MS = FALL_DURATION + 40; // 260ms — one step per ball animation
+    // Velocity from PanResponder is px/ms; scale to a reasonable step count
+    const steps = Math.min(ROWS * 3, Math.max(0, Math.round(Math.abs(velocity) * 5)));
+    if (steps === 0) return;
+    const dir = axis === 'col'
+      ? (velocity > 0 ? 'down' : 'up')
+      : (velocity > 0 ? 'right' : 'left');
+    const startMatchId = stateRef.current.lastMatch?.id ?? -1;
+    let remaining = steps;
+    const tick = () => {
+      if (remaining <= 0) return;
+      if (stateRef.current.gameOver) return;
+      if ((stateRef.current.lastMatch?.id ?? -1) !== startMatchId) return;
+      sfx.playMove();
+      if (axis === 'col') {
+        dispatch({ type: 'COL_SLIDE', player: 0, col, dir });
+      } else {
+        dispatch({ type: 'ROW_SLIDE', player: 0, dir });
+      }
+      remaining--;
+      relaxMomentumTimerRef.current = setTimeout(tick, STEP_MS);
+    };
+    relaxMomentumTimerRef.current = setTimeout(tick, STEP_MS);
+  }, []);
+
   const handleP1CenterTap = useCallback(() => {
     sfx.playMove();
     dispatch({ type: 'SPAWN_WAVE', player: 0 });
@@ -2331,6 +2455,9 @@ export default function GameScreen({ navigation, route }) {
               powerUps={powerUps}
               freezeActive={freezeLeft > 0}
               lastBombBlast={lastBombBlast}
+              isRelaxMode={mode === 'relax'}
+              lastMatchId={lastMatch?.id ?? 0}
+              onRelaxMomentum={handleRelaxMomentum}
             />
           </View>
         ) : (
