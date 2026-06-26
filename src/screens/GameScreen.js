@@ -68,7 +68,7 @@ function zenXPForLevel(level) {
   return Math.floor(20 * Math.pow(1.4, level - 1));
 }
 
-function createInitialState(mode, ballCount = 5) {
+function createInitialState(mode, ballCount = 5, resumeData = null) {
   setBallTypes(ballCount === 6 ? BALL_TYPES_6 : BALL_TYPES_5);
   const isSolo = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax' || mode === 'mayhem';
 
@@ -114,9 +114,19 @@ function createInitialState(mode, ballCount = 5) {
   }
 
   if (mode === 'relax') {
-    base.zenXP         = 0;
-    base.zenLevel      = 1;
-    base.zenXPRequired = zenXPForLevel(1); // 20
+    if (resumeData) {
+      // Restore board + progress from a previous session
+      base.boards        = [resumeData.board];
+      base.scores        = [resumeData.score ?? 0];
+      base.combos        = [resumeData.combos?.[0] ?? 0];
+      base.zenXP         = resumeData.zenXP ?? 0;
+      base.zenLevel      = resumeData.zenLevel ?? 1;
+      base.zenXPRequired = resumeData.zenXPRequired ?? zenXPForLevel(1);
+    } else {
+      base.zenXP         = 0;
+      base.zenLevel      = 1;
+      base.zenXPRequired = zenXPForLevel(1); // 20
+    }
   }
 
   return base;
@@ -1610,8 +1620,9 @@ const BoardWithControls = React.memo(({
 
 export default function GameScreen({ navigation, route }) {
   const mode        = route?.params?.mode ?? 'ai';
-  const ballCount   = route?.params?.ballCount ?? 5;
+  const ballCount    = route?.params?.ballCount ?? 5;
   const aiDifficulty = route?.params?.aiDifficulty ?? DEFAULT_AI_DIFFICULTY;
+  const resumeData   = route?.params?.resumeData ?? null;
   const insets = useSafeAreaInsets();
   const isSolo  = mode === 'solo-time' || mode === 'solo-normal' || mode === 'relax' || mode === 'mayhem';
 
@@ -1626,7 +1637,7 @@ export default function GameScreen({ navigation, route }) {
   const isMobile = winWidth < 768;
 
   const [state, dispatch] = useReducer(gameReducer, undefined, () =>
-    createInitialState(mode, ballCount)
+    createInitialState(mode, ballCount, resumeData)
   );
 
   // Keep a ref to always-current state for the keyboard handler
@@ -1687,8 +1698,23 @@ export default function GameScreen({ navigation, route }) {
   const handleConfirmLeave = useCallback(() => {
     sfx.playClick();
     setShowLeaveConfirm(false);
+    // Persist RELAX state so the player can resume from the menu
+    if (mode === 'relax' && !stateRef.current.gameOver) {
+      const s = stateRef.current;
+      const saveData = {
+        board:         s.boards[0],
+        score:         s.scores[0],
+        combos:        [s.combos?.[0] ?? 0],
+        zenXP:         s.zenXP ?? 0,
+        zenLevel:      s.zenLevel ?? 1,
+        zenXPRequired: s.zenXPRequired ?? zenXPForLevel(1),
+        ballCount,
+        savedAt:       Date.now(),
+      };
+      AsyncStorage.setItem(`savedRelaxGame_${ballCount}`, JSON.stringify(saveData)).catch(() => {});
+    }
     navigation.navigate('Menu');
-  }, [navigation]);
+  }, [navigation, mode, ballCount]);
 
   // ── AI timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1868,6 +1894,29 @@ export default function GameScreen({ navigation, route }) {
     });
   }, [isSolo, mode, state.scores[0]]);
 
+  // ── RELAX auto-save: persist progress on every match so the player can resume ──
+  useEffect(() => {
+    if (mode !== 'relax' || state.gameOver) return;
+    const saveData = {
+      board:         state.boards[0],
+      score:         state.scores[0],
+      combos:        [state.combos?.[0] ?? 0],
+      zenXP:         state.zenXP ?? 0,
+      zenLevel:      state.zenLevel ?? 1,
+      zenXPRequired: state.zenXPRequired ?? zenXPForLevel(1),
+      ballCount,
+      savedAt:       Date.now(),
+    };
+    AsyncStorage.setItem(`savedRelaxGame_${ballCount}`, JSON.stringify(saveData)).catch(() => {});
+  }, [mode, state.scores[0], state.zenLevel, state.gameOver]);
+
+  // Clear save when the session is intentionally ended (End Session / time's up)
+  useEffect(() => {
+    if (mode === 'relax' && state.gameOver) {
+      AsyncStorage.removeItem(`savedRelaxGame_${ballCount}`).catch(() => {});
+    }
+  }, [mode, state.gameOver]);
+
   // ── Keyboard controls (web) ───────────────────────────────────────────────────
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1987,7 +2036,7 @@ export default function GameScreen({ navigation, route }) {
   //   a) player just beat their best AND qualifies for leaderboard, OR
   //   b) player has never set a name (first game — prompt so future runs are pre-filled).
   useEffect(() => {
-    if (!state.gameOver || !isSolo) return;
+    if (!state.gameOver || !isSolo || mode === 'relax') return;
     const score = state.scores[0];
     // First-time player: prompt regardless of score
     if (!lbName) {
@@ -2222,7 +2271,11 @@ export default function GameScreen({ navigation, route }) {
 
           {/* Reset button */}
           <TouchableOpacity
-            onPress={() => { sfx.playClick(); dispatch({ type: 'RESET' }); }}
+            onPress={() => {
+              sfx.playClick();
+              if (mode === 'relax') AsyncStorage.removeItem(`savedRelaxGame_${ballCount}`).catch(() => {});
+              dispatch({ type: 'RESET' });
+            }}
             style={styles.headerBtn}
           >
             <Text style={styles.headerBtnTxt}>↺</Text>

@@ -40,6 +40,7 @@ export default function MenuScreen({ navigation }) {
   const [bestScores, setBestScores] = useState({});
   const [showHelp, setHelp]       = useState(false);
   const [showSolo, setSolo]       = useState(false);
+  const [relaxSaveData, setRelaxSaveData] = useState(null); // null=unknown, false=none, obj=save
   const [showAI, setShowAI]       = useState(false);
   const [showSettings, setSettings] = useState(false);
   const [ballCount, setBallCount] = useState(5);
@@ -176,7 +177,28 @@ export default function MenuScreen({ navigation }) {
     if (next) haptics.vibrateClick();
   };
 
+  // Check for a saved RELAX game whenever the mode picker opens
+  useEffect(() => {
+    if (!showSolo) return;
+    AsyncStorage.getItem(`savedRelaxGame_${ballCount}`)
+      .then(v => setRelaxSaveData(v ? JSON.parse(v) : false))
+      .catch(() => setRelaxSaveData(false));
+  }, [showSolo, ballCount]);
+
   const play = (mode, extra = {}) => { sfx.playClick(); navigation.navigate('Game', { mode, ballCount, ...extra }); };
+
+  const startRelax = (resume) => {
+    setSolo(false);
+    setRelaxSaveData(null);
+    if (resume && relaxSaveData) {
+      sfx.playClick();
+      navigation.navigate('Game', { mode: 'relax', ballCount, resumeData: relaxSaveData });
+    } else {
+      // Clear any old save when starting fresh
+      AsyncStorage.removeItem(`savedRelaxGame_${ballCount}`).catch(() => {});
+      play('relax');
+    }
+  };
 
   const playAI = (difficulty) => {
     setAiDifficulty(difficulty);
@@ -447,20 +469,39 @@ export default function MenuScreen({ navigation }) {
               </View>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.modeBtn, styles.modeBtnAlt, styles.modeBtnRelax]}
-              onPress={() => { setSolo(false); play('relax'); }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.modeBtnIcon}>🌿</Text>
-              <View>
-                <Text style={styles.modeBtnLabel}>RELAX</Text>
-                <Text style={styles.modeBtnSub}>Full board · no timer · just match</Text>
-                {bestScores['relax'] > 0 && (
-                  <Text style={styles.modeBtnBest}>Best: {bestScores['relax'].toLocaleString()}</Text>
-                )}
+            {relaxSaveData && typeof relaxSaveData === 'object' ? (
+              /* Saved game found — show Resume / New Game options */
+              <View style={styles.relaxResumeBox}>
+                <Text style={styles.relaxResumeTitle}>🌿 Saved RELAX Game</Text>
+                <Text style={styles.relaxResumeSub}>
+                  Score: {(relaxSaveData.score ?? 0).toLocaleString()}
+                  {relaxSaveData.zenLevel > 1 ? `  ·  Level ${relaxSaveData.zenLevel}` : ''}
+                </Text>
+                <View style={styles.relaxResumeRow}>
+                  <TouchableOpacity style={styles.relaxResumePrimary} onPress={() => startRelax(true)} activeOpacity={0.8}>
+                    <Text style={styles.relaxResumePrimaryTxt}>▶  Resume</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.relaxResumeSecondary} onPress={() => startRelax(false)} activeOpacity={0.8}>
+                    <Text style={styles.relaxResumeSecondaryTxt}>New Game</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.modeBtn, styles.modeBtnAlt, styles.modeBtnRelax]}
+                onPress={() => startRelax(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modeBtnIcon}>🌿</Text>
+                <View>
+                  <Text style={styles.modeBtnLabel}>RELAX</Text>
+                  <Text style={styles.modeBtnSub}>Full board · no timer · just match</Text>
+                  {bestScores['relax'] > 0 && (
+                    <Text style={styles.modeBtnBest}>Best: {bestScores['relax'].toLocaleString()}</Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setSolo(false); }}>
               <Text style={styles.sheetCloseTxt}>Cancel</Text>
@@ -692,6 +733,37 @@ const styles = StyleSheet.create({
   modeBtnSelected: { borderWidth: 2, borderColor: '#FFD700' },
   modeBtnMayhem:   { borderColor: '#FF6B35', borderWidth: 2, backgroundColor: '#1E0904' },
   modeBtnRelax:    { borderColor: '#2ED573', borderWidth: 2, backgroundColor: '#041A10' },
+
+  // Resume saved RELAX game prompt
+  relaxResumeBox: {
+    backgroundColor: '#041A10',
+    borderWidth: 2,
+    borderColor: '#2ED573',
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 12,
+    gap: 6,
+  },
+  relaxResumeTitle:  { color: '#2ED573', fontSize: 15, fontWeight: 'bold', letterSpacing: 0.5 },
+  relaxResumeSub:    { color: 'rgba(255,255,255,0.55)', fontSize: 13, marginBottom: 6 },
+  relaxResumeRow:    { flexDirection: 'row', gap: 10 },
+  relaxResumePrimary: {
+    flex: 1,
+    backgroundColor: '#2ED573',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  relaxResumePrimaryTxt:   { color: '#041A10', fontSize: 15, fontWeight: '900', letterSpacing: 1 },
+  relaxResumeSecondary: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: '#2A2A50',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  relaxResumeSecondaryTxt: { color: '#888', fontSize: 15, fontWeight: 'bold' },
   modeBtnIcon:     { fontSize: 28 },
   modeBtnLabel:    { color: '#FFF', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   modeBtnSub:      { color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 },

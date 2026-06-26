@@ -14,7 +14,6 @@ import { fetchLeaderboard } from '../firebase';
 
 export const LEADERBOARD_MODES = [
   { key: 'mayhem', label: 'TIME BLAST', icon: '💣' },
-  { key: 'relax',  label: 'RELAX',    icon: '🌿' },
 ];
 
 const RANK_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
