@@ -886,15 +886,33 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
           // around the row slide (e.g. col 0 → col COLS-1) — rather than
           // sliding it visibly across every other column, jump it just off
           // the edge it's entering from and slide it in to its new cell.
-          const isWrap = old && row === MAIN_ROW && old.row === MAIN_ROW
+          const isRowWrap = old && row === MAIN_ROW && old.row === MAIN_ROW
             && COLS > 2 && Math.abs(col - old.col) === COLS - 1;
 
-          if (isWrap) {
+          // In RELAX/wrap column-slide mode a ball at row 0 wraps to row
+          // ROWS-1 (or vice-versa). Without special handling it would animate
+          // the full board height in the wrong direction, flying through every
+          // other ball. Detect this and snap the ball to just outside the edge
+          // it enters from, then slide it in the short direction only.
+          const isColWrap = colWrap && old && col === old.col
+            && Math.abs(row - old.row) === ROWS - 1;
+
+          if (isRowWrap) {
             const enteringFromRight = col > old.col;
             entry.top.setValue(targetTop);
             entry.left.setValue(enteringFromRight ? boardWidth : -cellSize);
             moves.push(
               Animated.timing(entry.left, { toValue: targetLeft, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
+            );
+          } else if (isColWrap) {
+            // Ball exited one end of the column and re-enters from the other.
+            // Snap it just outside the entry edge, then animate the one cell
+            // into its landing position.
+            const enteringFromBelow = row < old.row; // old=ROWS-1, new=0 → enters from below top
+            entry.left.setValue(targetLeft);
+            entry.top.setValue(enteringFromBelow ? boardHeight : -cellSize);
+            moves.push(
+              Animated.timing(entry.top, { toValue: targetTop, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
             );
           } else {
             // Existing ball moved (gravity / slide) — slide to its new cell.
