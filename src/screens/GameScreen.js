@@ -1488,22 +1488,20 @@ const BoardWithControls = React.memo(({
             const totalSteps = Math.trunc(g.dy / cs);
             const delta = totalSteps - rd.steps;
             if (delta !== 0) {
-              const dir = delta > 0 ? 'down' : 'up';
-              for (let i = 0; i < Math.abs(delta); i++) {
-                cbRef.current.onColSlide(rd.col, dir);
-              }
-              rd.steps = totalSteps;
+              // One dispatch per move event — prevents React 18 from batching
+              // multiple COL_SLIDE calls in the same handler, which would make
+              // useBallAnimations see a large combined delta and animate balls
+              // the wrong direction (or through each other).
+              cbRef.current.onColSlide(rd.col, delta > 0 ? 'down' : 'up');
+              rd.steps += Math.sign(delta);
             }
             // No dragOffset — ball animations handle the visual movement
           } else if (dragAxisRef.current === 'row') {
             const totalSteps = Math.trunc(g.dx / cs);
             const delta = totalSteps - rd.steps;
             if (delta !== 0) {
-              const dir = delta > 0 ? 'right' : 'left';
-              for (let i = 0; i < Math.abs(delta); i++) {
-                cbRef.current.onRowSlide(dir);
-              }
-              rd.steps = totalSteps;
+              cbRef.current.onRowSlide(delta > 0 ? 'right' : 'left');
+              rd.steps += Math.sign(delta);
             }
           }
           return; // skip normal one-step preview below
