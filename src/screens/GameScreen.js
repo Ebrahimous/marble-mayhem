@@ -894,8 +894,10 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
           // the full board height in the wrong direction, flying through every
           // other ball. Detect this and snap the ball to just outside the edge
           // it enters from, then slide it in the short direction only.
+          // Heuristic: |delta_row| > half-column catches wraps even when
+          // React 18 batches 2-3 COL_SLIDEs into one render (Deltarow=ROWS-2 etc).
           const isColWrap = colWrap && old && col === old.col
-            && Math.abs(row - old.row) === ROWS - 1;
+            && Math.abs(row - old.row) > (ROWS - 1) / 2;
 
           if (isRowWrap) {
             const enteringFromRight = col > old.col;
@@ -908,7 +910,9 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
             // Ball exited one end of the column and re-enters from the other.
             // Snap it just outside the entry edge, then animate the one cell
             // into its landing position.
-            const enteringFromBelow = row < old.row; // old=ROWS-1, new=0 → enters from below top
+            // DOWN-wrap (new<old): ball exits bottom, enters above top edge.
+            // UP-wrap  (new>old): ball exits top,    enters below bottom edge.
+            const enteringFromBelow = row > old.row;
             entry.left.setValue(targetLeft);
             entry.top.setValue(enteringFromBelow ? boardHeight : -cellSize);
             moves.push(
