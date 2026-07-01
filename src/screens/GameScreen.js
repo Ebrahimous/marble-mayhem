@@ -721,10 +721,8 @@ function landingBounce(scaleY) {
  * Returns an array of <Animated.View> elements (one per ball + ghost) ready
  * to render inside an absolutely-positioned overlay the size of the board.
  */
-function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast, externalRef, relaxDragRef) {
+function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast) {
   const animsRef = useRef(new Map()); // id -> { top, left, scaleY, opacity, type, row, col }
-  // Allow the pan responder to snap ball positions on RELAX drag release.
-  if (externalRef) externalRef.current = animsRef;
   const prevRef  = useRef(null);
   const [ghosts, setGhosts] = useState([]);
   const [popups, setPopups] = useState([]);
@@ -901,16 +899,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
           const isColWrap = colWrap && old && col === old.col
             && Math.abs(row - old.row) > (ROWS - 1) / 2;
 
-          // During an active RELAX drag on this column, entry.top is set
-          // directly by the pan responder (synchronous). Any setValue here
-          // would conflict asynchronously. Skip until drag ends.
-          const isRelaxDragActive = colWrap
-            && relaxDragRef?.current?.axis != null
-            && !relaxDragRef?.current?.locked
-            && col === relaxDragRef?.current?.col;
-          if (isRelaxDragActive) {
-            // entry.top controlled by pan responder; skip.
-          } else if (isRowWrap) {
+          if (isRowWrap) {
             entry.top.stopAnimation();
             entry.left.stopAnimation();
             const enteringFromRight = col > old.col;
@@ -1350,7 +1339,6 @@ const TAP_THRESHOLD = 10;
 
 const BoardWithControls = React.memo(({
   board, label, onColSlide, onRowSlide, onCenterTap, disabled, selectedCol, cellSize, boardPx, tapToMove, lastMatch, colWrap, powerUps, freezeActive, lastBombBlast,
-  isRelaxMode = false, lastMatchId = 0,
 }) => {
   // Animate the freeze border in/out as freezeActive changes
   const freezeAnim = useRef(new Animated.Value(0)).current;
@@ -1406,16 +1394,11 @@ const BoardWithControls = React.memo(({
   const swipeThreshold = cellSize * 0.45;
 
   // Always-fresh callbacks/values without stale closure
-  const ballAnimsRef = useRef(null); // set by useBallAnimations; used for RELAX snap-on-release
-  const cbRef = useRef({ onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove, isRelaxMode, lastMatchId, board, ballAnimsRef });
-  cbRef.current = { onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove, isRelaxMode, lastMatchId, board, ballAnimsRef };
+  const cbRef = useRef({ onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove });
+  cbRef.current = { onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove };
 
   const gestureStart   = useRef({ col: 0, row: 0, x: 0 });
   const gestureHandled = useRef(false);
-
-  // RELAX continuous-scroll state: tracks steps already dispatched during the
-  // current drag so we can offset the visual by the fractional remainder only.
-  const relaxDragRef = useRef({ steps: 0, matchId: 0, locked: false, col: 0, axis: null });
 
   // Live touch-drag preview state: while dragging, `dragAxisRef` tracks
   // whether the gesture is sliding a column ('col') or the main row ('row'),
@@ -1457,20 +1440,7 @@ const BoardWithControls = React.memo(({
         gestureHandled.current = false;
         dragAxisRef.current = null;
         dragOffset.setValue(0);
-        // Reset RELAX scroll tracker for this gesture
-        if (cbRef.current.isRelaxMode) {
-          const dragCol = Math.min(COLS - 1, Math.max(0, Math.floor(x / cs)));
-          // Snapshot where each ball in this column starts so release
-          // can compute final positions without stale board state.
-          const initialRows = {};
-          forEachCell(cbRef.current.board, (ball, row, col) => {
-            if (col === dragCol) initialRows[ball.id] = row;
-          });
-          relaxDragRef.current = {
-            steps: 0, matchId: cbRef.current.lastMatchId, locked: false,
-            col: dragCol, axis: null, initialRows,
-          };
-        }
+
       },
 
       // Live-follow: as the finger moves, translate the dragged column (or
@@ -1485,65 +1455,7 @@ const BoardWithControls = React.memo(({
         const absX = Math.abs(g.dx);
         const absY = Math.abs(g.dy);
 
-        if (cbRef.current.isRelaxMode) {
-          // ── RELAX continuous scroll ───────────────────────────────────────
-          const rd = relaxDragRef.current;
 
-          // Stop dispatching if a match fired during this drag
-          if (cbRef.current.lastMatchId !== rd.matchId) {
-            rd.locked = true;
-            return;
-          }
-          if (rd.locked) return;
-
-          // Determine axis on first significant movement.
-          if (!dragAxisRef.current) {
-            if (Math.max(absX, absY) < 6) return;
-            if (absY >= absX) {
-              dragAxisRef.current = 'col';
-              rd.axis = 'col';
-              rd.col = col;
-            } else if (row === MAIN_ROW) {
-              dragAxisRef.current = 'row';
-              rd.axis = 'row';
-            } else {
-              dragAxisRef.current = 'none';
-              return;
-            }
-          }
-          if (dragAxisRef.current === 'none') return;
-
-          if (dragAxisRef.current === 'col') {
-            const totalSteps = Math.trunc(g.dy / cs);
-            const delta = totalSteps - rd.steps;
-            if (delta !== 0) {
-              cbRef.current.onColSlide(rd.col, delta > 0 ? 'down' : 'up');
-              rd.steps += Math.sign(delta);
-            }
-            // Set each ball's position directly -- one synchronous setValue
-            // per frame, no Animated.timing, no dragOffset, no async conflict.
-            const animsMap = cbRef.current.ballAnimsRef?.current?.current;
-            if (animsMap && rd.initialRows) {
-              const boardH = ROWS * cs;
-              Object.entries(rd.initialRows).forEach(([idStr, startRow]) => {
-                const entry = animsMap.get(Number(idStr));
-                if (!entry) return;
-                const rawPos = startRow * cs + g.dy;
-                const wrappedPos = ((rawPos % boardH) + boardH) % boardH;
-                entry.top.setValue(wrappedPos);
-              });
-            }
-          } else if (dragAxisRef.current === 'row') {
-            const totalSteps = Math.trunc(g.dx / cs);
-            const delta = totalSteps - rd.steps;
-            if (delta !== 0) {
-              cbRef.current.onRowSlide(delta > 0 ? 'right' : 'left');
-              rd.steps += Math.sign(delta);
-            }
-            dragOffset.setValue(g.dx - rd.steps * cs);
-          }
-          return; // skip normal one-step preview below
-        }
 
         // ── Normal (non-RELAX) one-step visual preview ────────────────────
         if (!dragAxisRef.current) {
@@ -1567,27 +1479,7 @@ const BoardWithControls = React.memo(({
       },
 
       onPanResponderRelease: (_, g) => {
-        if (cbRef.current.isRelaxMode) {
-          const rd = relaxDragRef.current;
-          const cs = cbRef.current.cellSize;
-          // Snap each ball to the nearest grid row so the board is clean
-          // after the finger lifts (fractional remainder snaps to grid).
-          if (dragAxisRef.current === 'col') {
-            const animsMap = cbRef.current.ballAnimsRef?.current?.current;
-            if (animsMap && rd.initialRows) {
-              Object.entries(rd.initialRows).forEach(([idStr, startRow]) => {
-                const entry = animsMap.get(Number(idStr));
-                if (!entry) return;
-                const finalRow = ((startRow + rd.steps) % ROWS + ROWS) % ROWS;
-                entry.top.setValue(finalRow * cs);
-                entry.row = finalRow;
-              });
-            }
-          }
-          rd.axis = null; // allow useBallAnimations to resume
-          dragAxisRef.current = null;
-          return;
-        }
+
 
         if (gestureHandled.current || cbRef.current.disabled) {
           resetDrag();
@@ -1634,7 +1526,7 @@ const BoardWithControls = React.memo(({
     })
   ).current;
 
-  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast, ballAnimsRef, relaxDragRef);
+  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast);
 
   return (
     <View style={styles.boardCtrl}>
@@ -2482,8 +2374,6 @@ export default function GameScreen({ navigation, route }) {
               powerUps={powerUps}
               freezeActive={freezeLeft > 0}
               lastBombBlast={lastBombBlast}
-              isRelaxMode={mode === 'relax'}
-              lastMatchId={lastMatch?.id ?? 0}
             />
           </View>
         ) : (
