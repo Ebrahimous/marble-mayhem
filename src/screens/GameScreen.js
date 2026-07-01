@@ -1480,19 +1480,21 @@ const BoardWithControls = React.memo(({
           if (rd.locked) return;
 
           // Determine axis on first significant movement.
-          // We track axis in rd.axis but do NOT call setDragInfo — the dragOffset
-          // fractional preview conflicts with the ball position animations and
-          // causes visual doubling. Ball animations from each dispatch are the
-          // only visuals needed for continuous scroll.
           if (!dragAxisRef.current) {
             if (Math.max(absX, absY) < 6) return;
             if (absY >= absX) {
               dragAxisRef.current = 'col';
               rd.axis = 'col';
               rd.col = col;
+              // Activate dragInfo so useBallAnimations applies a translateY
+              // for the fractional sub-cell offset (the smooth visual).
+              // useBallAnimations snaps entry.top instantly for colWrap balls,
+              // so dragOffset is the ONLY animation on the column -- no conflict.
+              setDragInfo({ axis: 'col', index: rd.col, offset: dragOffset });
             } else if (row === MAIN_ROW) {
               dragAxisRef.current = 'row';
               rd.axis = 'row';
+              setDragInfo({ axis: 'row', index: MAIN_ROW, offset: dragOffset });
             } else {
               dragAxisRef.current = 'none';
               return;
@@ -1504,14 +1506,15 @@ const BoardWithControls = React.memo(({
             const totalSteps = Math.trunc(g.dy / cs);
             const delta = totalSteps - rd.steps;
             if (delta !== 0) {
-              // One dispatch per move event — prevents React 18 from batching
-              // multiple COL_SLIDE calls in the same handler, which would make
-              // useBallAnimations see a large combined delta and animate balls
-              // the wrong direction (or through each other).
+              // One dispatch per move event -- prevents React 18 batching.
               cbRef.current.onColSlide(rd.col, delta > 0 ? 'down' : 'up');
               rd.steps += Math.sign(delta);
             }
-            // No dragOffset — ball animations handle the visual movement
+            // Fractional sub-cell offset: g.dy minus the full cells already
+            // dispatched. entry.top is snapped to the integer grid position;
+            // dragOffset supplies the remaining smooth fraction so the ball
+            // tracks the finger exactly with no stacked Animated.timing calls.
+            dragOffset.setValue(g.dy - rd.steps * cs);
           } else if (dragAxisRef.current === 'row') {
             const totalSteps = Math.trunc(g.dx / cs);
             const delta = totalSteps - rd.steps;
@@ -1519,6 +1522,7 @@ const BoardWithControls = React.memo(({
               cbRef.current.onRowSlide(delta > 0 ? 'right' : 'left');
               rd.steps += Math.sign(delta);
             }
+            dragOffset.setValue(g.dx - rd.steps * cs);
           }
           return; // skip normal one-step preview below
         }
