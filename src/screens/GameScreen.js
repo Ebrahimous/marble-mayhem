@@ -721,8 +721,10 @@ function landingBounce(scaleY) {
  * Returns an array of <Animated.View> elements (one per ball + ghost) ready
  * to render inside an absolutely-positioned overlay the size of the board.
  */
-function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast) {
+function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast, externalRef) {
   const animsRef = useRef(new Map()); // id -> { top, left, scaleY, opacity, type, row, col }
+  // Allow the pan responder to snap ball positions on RELAX drag release.
+  if (externalRef) externalRef.current = animsRef;
   const prevRef  = useRef(null);
   const [ghosts, setGhosts] = useState([]);
   const [popups, setPopups] = useState([]);
@@ -899,8 +901,13 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
           const isColWrap = colWrap && old && col === old.col
             && Math.abs(row - old.row) > (ROWS - 1) / 2;
 
-          if (isRowWrap) {
-            // Stop any in-flight animation before repositioning.
+          // During an active RELAX drag on this exact column, dragOffset
+          // (= raw g.dy) drives the visual 1:1. Touching entry.top here
+          // would cause a jump because setValue is sync but board
+          // re-renders are async. Skip -- snap happens on release.
+          if (colWrap && dragInfo && dragInfo.axis === 'col' && col === dragInfo.index) {
+            // entry.row/col already updated above; no entry.top change.
+          } else if (isRowWrap) {
             entry.top.stopAnimation();
             entry.left.stopAnimation();
             const enteringFromRight = col > old.col;
@@ -1396,8 +1403,9 @@ const BoardWithControls = React.memo(({
   const swipeThreshold = cellSize * 0.45;
 
   // Always-fresh callbacks/values without stale closure
-  const cbRef = useRef({ onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove, isRelaxMode, lastMatchId });
-  cbRef.current = { onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove, isRelaxMode, lastMatchId };
+  const ballAnimsRef = useRef(null); // set by useBallAnimations; used for RELAX snap-on-release
+  const cbRef = useRef({ onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove, isRelaxMode, lastMatchId, board, ballAnimsRef });
+  cbRef.current = { onColSlide, onRowSlide, onCenterTap, disabled, cellSize, boardPx, swipeThreshold, tapToMove, isRelaxMode, lastMatchId, board, ballAnimsRef };
 
   const gestureStart   = useRef({ col: 0, row: 0, x: 0 });
   const gestureHandled = useRef(false);
@@ -1448,10 +1456,16 @@ const BoardWithControls = React.memo(({
         dragOffset.setValue(0);
         // Reset RELAX scroll tracker for this gesture
         if (cbRef.current.isRelaxMode) {
+          const dragCol = Math.min(COLS - 1, Math.max(0, Math.floor(x / cs)));
+          // Snapshot where each ball in this column starts so release
+          // can compute final positions without stale board state.
+          const initialRows = {};
+          forEachCell(cbRef.current.board, (ball, row, col) => {
+            if (col === dragCol) initialRows[ball.id] = row;
+          });
           relaxDragRef.current = {
             steps: 0, matchId: cbRef.current.lastMatchId, locked: false,
-            col: Math.min(COLS - 1, Math.max(0, Math.floor(x / cs))),
-            axis: null,
+            col: dragCol, axis: null, initialRows,
           };
         }
       },
@@ -1514,7 +1528,10 @@ const BoardWithControls = React.memo(({
             // dispatched. entry.top is snapped to the integer grid position;
             // dragOffset supplies the remaining smooth fraction so the ball
             // tracks the finger exactly with no stacked Animated.timing calls.
-            dragOffset.setValue(g.dy - rd.steps * cs);
+            // Full raw displacement -- entry.top is frozen during drag
+            // (see useBallAnimations), so dragOffset = g.dy gives exact
+            // 1:1 finger tracking with no sync-vs-async jump.
+            dragOffset.setValue(g.dy);
           } else if (dragAxisRef.current === 'row') {
             const totalSteps = Math.trunc(g.dx / cs);
             const delta = totalSteps - rd.steps;
@@ -1549,10 +1566,28 @@ const BoardWithControls = React.memo(({
       },
 
       onPanResponderRelease: (_, g) => {
-        // ── RELAX: steps were already dispatched during drag; just add momentum ──
         if (cbRef.current.isRelaxMode) {
-          // Finger lifted — stop immediately, no momentum
-          resetDrag();
+          const rd = relaxDragRef.current;
+          const cs = cbRef.current.cellSize;
+          // Snap each ball in the dragged column to its true final position,
+          // then zero dragOffset synchronously. Both happen before the next
+          // paint, so the ball never flickers to a wrong position.
+          if (dragAxisRef.current === 'col') {
+            const animsMap = cbRef.current.ballAnimsRef?.current?.current; // animsRef.current (Map)
+            if (animsMap && rd.initialRows) {
+              Object.entries(rd.initialRows).forEach(([idStr, startRow]) => {
+                const entry = animsMap.get(Number(idStr));
+                if (!entry) return;
+                const finalRow = ((startRow + rd.steps) % ROWS + ROWS) % ROWS;
+                entry.top.stopAnimation();
+                entry.top.setValue(finalRow * cs);
+                entry.row = finalRow;
+              });
+            }
+          }
+          dragOffset.setValue(0);
+          setDragInfo({ axis: null, index: -1, offset: dragOffset });
+          dragAxisRef.current = null;
           return;
         }
 
@@ -1601,7 +1636,7 @@ const BoardWithControls = React.memo(({
     })
   ).current;
 
-  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast);
+  const ballElements = useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerUps, lastBombBlast, ballAnimsRef);
 
   return (
     <View style={styles.boardCtrl}>
