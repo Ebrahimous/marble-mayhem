@@ -1,12 +1,12 @@
-// Marble Mayhem — Service Worker
-// Minimal SW: caches the app shell on install so the game loads offline.
+// Marble Mayhem -- Service Worker
+// v2: network-first for HTML so stale cached index never breaks new builds.
 
-const CACHE = 'marble-mayhem-v1';
+const CACHE = 'marble-mayhem-v2';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE).then((cache) =>
-      cache.addAll(['/', '/manifest.json'])
+      cache.addAll(['/manifest.json'])
     )
   );
   self.skipWaiting();
@@ -22,15 +22,12 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // Network-first for JS bundles (always fresh), cache-first for everything else.
   const url = new URL(e.request.url);
-  if (url.pathname.startsWith('/_expo/') || url.pathname.endsWith('.js')) {
+
+  // HTML pages (including '/') -- always network-first.
+  // Expo builds use hashed JS filenames; if the cached HTML references old
+  // hashes that no longer exist on the CDN, the app breaks with a white screen.
+  // Fetching HTML fresh on every load prevents this.
+  if (e.request.mode === 'navigate' || url.pathname === '/') {
     e.respondWith(
-      fetch(e.request).catch(() => caches.match(e.request))
-    );
-  } else {
-    e.respondWith(
-      caches.match(e.request).then((cached) => cached || fetch(e.request))
-    );
-  }
-});
+      fetch(e.req
