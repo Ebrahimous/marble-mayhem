@@ -900,24 +900,36 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
             && Math.abs(row - old.row) > (ROWS - 1) / 2;
 
           if (isRowWrap) {
+            // Stop any in-flight animation before repositioning.
+            entry.top.stopAnimation();
+            entry.left.stopAnimation();
             const enteringFromRight = col > old.col;
             entry.top.setValue(targetTop);
             entry.left.setValue(enteringFromRight ? boardWidth : -cellSize);
             moves.push(
-              Animated.timing(entry.left, { toValue: targetLeft, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
+              Animated.timing(entry.left, { toValue: targetLeft, duration: colWrap ? 80 : FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
             );
           } else if (isColWrap) {
-            // Ball exited one end of the column and re-enters from the other.
-            // Snap it just outside the entry edge, then animate the one cell
-            // into its landing position.
+            // Stop any in-flight animation before repositioning.
+            entry.top.stopAnimation();
+            entry.left.stopAnimation();
             // DOWN-wrap (new<old): ball exits bottom, enters above top edge.
             // UP-wrap  (new>old): ball exits top,    enters below bottom edge.
             const enteringFromBelow = row > old.row;
             entry.left.setValue(targetLeft);
             entry.top.setValue(enteringFromBelow ? boardHeight : -cellSize);
             moves.push(
-              Animated.timing(entry.top, { toValue: targetTop, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
+              Animated.timing(entry.top, { toValue: targetTop, duration: 80, easing: SLIDE_EASING, useNativeDriver: false })
             );
+          } else if (colWrap) {
+            // RELAX continuous scroll: snap instantly instead of animating.
+            // FALL_DURATION is 220ms but swipe events fire every ~11ms at 90 Hz,
+            // so stacking 20 simultaneous Animated.timing calls on the same value
+            // causes them to race and produce visual overlaps. setValue is atomic.
+            entry.top.stopAnimation();
+            entry.left.stopAnimation();
+            entry.top.setValue(targetTop);
+            entry.left.setValue(targetLeft);
           } else {
             // Existing ball moved (gravity / slide) — slide to its new cell.
             moves.push(Animated.parallel([
