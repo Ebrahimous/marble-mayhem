@@ -17,6 +17,7 @@ const Stack = createNativeStackNavigator();
  *  - Theme colour for browser chrome / "Add to Home Screen"
  *  - Disable pull-to-refresh, rubber-band scrolling, text selection,
  *    and the tap-highlight flash so swipes feel native.
+ *  - PWA: inject manifest link + register service worker
  */
 function useMobileWebSetup() {
   useEffect(() => {
@@ -61,7 +62,7 @@ function useMobileWebSetup() {
     `;
     document.head.appendChild(style);
 
-    // ── PWA: link manifest + register service worker ──────────────────────
+    // PWA: link manifest + register service worker.
     // Injected here instead of in index.html because Expo generates the HTML
     // template and we can't easily modify it without ejecting.
     if (!document.querySelector('link[rel="manifest"]')) {
@@ -71,4 +72,33 @@ function useMobileWebSetup() {
       document.head.appendChild(manifestLink);
     }
     if (!document.querySelector('link[rel="apple-touch-icon"]')) {
- 
+      const appleIcon = document.createElement('link');
+      appleIcon.rel = 'apple-touch-icon';
+      appleIcon.href = '/apple-touch-icon.png';
+      document.head.appendChild(appleIcon);
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  }, []);
+}
+
+export default function App() {
+  useMobileWebSetup();
+
+  return (
+    <SafeAreaProvider>
+      <StatusBar style="light" />
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName="Menu"
+          screenOptions={{ headerShown: false, animation: 'fade' }}
+        >
+          <Stack.Screen name="Menu" component={MenuScreen} />
+          <Stack.Screen name="Game" component={GameScreen} />
+          <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
+  );
+}
