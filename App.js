@@ -60,25 +60,15 @@ function useMobileWebSetup() {
       }
     `;
     document.head.appendChild(style);
-  }, []);
-}
 
-export default function App() {
-  useMobileWebSetup();
-
-  return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName="Menu"
-          screenOptions={{ headerShown: false, animation: 'fade' }}
-        >
-          <Stack.Screen name="Menu" component={MenuScreen} />
-          <Stack.Screen name="Game" component={GameScreen} />
-          <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </SafeAreaProvider>
-  );
-}
+    // ── PWA: link manifest + register service worker ──────────────────────
+    // Injected here instead of in index.html because Expo generates the HTML
+    // template and we can't easily modify it without ejecting.
+    if (!document.querySelector('link[rel="manifest"]')) {
+      const manifestLink = document.createElement('link');
+      manifestLink.rel = 'manifest';
+      manifestLink.href = '/manifest.json';
+      document.head.appendChild(manifestLink);
+    }
+    if (!document.querySelector('link[rel="apple-touch-icon"]')) {
+ 
