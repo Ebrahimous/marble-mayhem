@@ -48,6 +48,30 @@ export default function MenuScreen({ navigation }) {
   const [soundOn, setSoundOn] = useState(true);
   const [hapticsOn, setHapticsOn] = useState(true);
   const [aiDifficulty, setAiDifficulty] = useState(DEFAULT_AI_DIFFICULTY);
+  const [canInstall, setCanInstall]     = useState(false);
+  const installPromptRef = useRef(null);
+
+  // ── PWA install prompt (web only) ─────────────────────────────────────────
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const handler = (e) => {
+      e.preventDefault();
+      installPromptRef.current = e;
+      setCanInstall(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const installPWA = () => {
+    if (!installPromptRef.current) return;
+    sfx.playClick();
+    installPromptRef.current.prompt();
+    installPromptRef.current.userChoice.then(() => {
+      installPromptRef.current = null;
+      setCanInstall(false);
+    });
+  };
 
   // ── Floating background balls ─────────────────────────────────────────────
   const bgBallAnims = useRef(BG_BALLS.map(() => new Animated.Value(0))).current;
@@ -441,6 +465,20 @@ export default function MenuScreen({ navigation }) {
               </View>
             </TouchableOpacity>
 
+            {canInstall && (
+              <TouchableOpacity style={styles.settingRow} onPress={installPWA} activeOpacity={0.8}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingLabel}>Add to Home Screen</Text>
+                  <Text style={styles.settingDesc}>
+                    Install Marble Mayhem as an app on your device for quick access.
+                  </Text>
+                </View>
+                <View style={styles.installBtn}>
+                  <Text style={styles.installBtnTxt}>Install</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity style={styles.sheetClose} onPress={() => { sfx.playClick(); setSettings(false); }}>
               <Text style={styles.sheetCloseTxt}>Done</Text>
             </TouchableOpacity>
@@ -636,18 +674,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 10,
   },
-  difficultyLabel: { color: '#444', fontSize: 9, letterSpacing: 2, marginBottom: 4 },
+  difficultyLabel: { color: '#444', fontSize: 8, letterSpacing: 2, marginBottom: 3 },
   difficultyPill: {
     flexDirection: 'row',
     backgroundColor: '#12122A',
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1.5,
     borderColor: '#252545',
     overflow: 'hidden',
   },
-  difficultyOption: { paddingVertical: 6, paddingHorizontal: 14 },
+  difficultyOption: { paddingVertical: 4, paddingHorizontal: 10 },
   difficultyOptionActive: { backgroundColor: '#1E90FF' },
-  difficultyOptionTxt: { color: '#666', fontSize: 14, fontWeight: 'bold' },
+  difficultyOptionTxt: { color: '#666', fontSize: 11, fontWeight: 'bold' },
   difficultyOptionTxtActive: { color: '#FFF' },
 
   // ── High score ─────────────────────────────────────────────────────────────
@@ -821,4 +859,13 @@ const styles = StyleSheet.create({
   toggleOptionActive:     { backgroundColor: '#1E90FF' },
   toggleOptionTxt:        { color: '#666', fontSize: 12, fontWeight: 'bold' },
   toggleOptionTxtActive:  { color: '#FFF' },
+
+  // PWA install button
+  installBtn: {
+    backgroundColor: '#1E90FF',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  installBtnTxt: { color: '#FFF', fontSize: 13, fontWeight: 'bold' },
 });
