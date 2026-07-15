@@ -1768,6 +1768,14 @@ export default function GameScreen({ navigation, route }) {
     navigation.navigate('Menu');
   }, [navigation, mode, ballCount]);
 
+  const requestLeave = useCallback(() => {
+    sfx.playClick();
+    if (stateRef.current.gameOver) { navigation.navigate('Menu'); return; }
+    pausedBeforeConfirmRef.current = stateRef.current.paused;
+    dispatch({ type: 'SET_PAUSED', value: true });
+    setShowLeaveConfirm(true);
+  }, [navigation]);
+
   // ── AI timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== 'ai' || state.gameOver || state.paused || showTutorial) return;
@@ -2263,7 +2271,7 @@ export default function GameScreen({ navigation, route }) {
       >
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => { sfx.playClick(); navigation.goBack(); }} style={styles.headerBtn}>
+          <TouchableOpacity onPress={requestLeave} style={styles.headerBtn}>
             <Text style={styles.headerBtnTxt}>◀</Text>
           </TouchableOpacity>
 
@@ -2463,7 +2471,7 @@ export default function GameScreen({ navigation, route }) {
           )}
           <TouchableOpacity
             style={[styles.goBtn, styles.goBtnSecondary]}
-            onPress={() => { sfx.playClick(); navigation.navigate('Menu'); }}
+            onPress={handleConfirmLeave}
           >
             <Text style={[styles.goBtnTxt, styles.goBtnTxtSecondary]}>Main Menu</Text>
           </TouchableOpacity>
