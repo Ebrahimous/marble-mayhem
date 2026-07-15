@@ -561,6 +561,7 @@ function gameReducer(state, action) {
         let timeLeft = state.timeLeft;
         let gameOver = false;
         let mayhemOverReason = null;
+        const wasFrozen = freezeLeft > 0;
 
         if (freezeLeft > 0) {
           freezeLeft = Math.max(0, freezeLeft - 1); // frozen — don't tick the clock
@@ -573,6 +574,7 @@ function gameReducer(state, action) {
         let powerUps = { ...state.powerUps };
         for (const [id, pu] of Object.entries(powerUps)) {
           if (pu.type !== 'tbomb') continue;
+          if (wasFrozen) continue;
           const newTimer = pu.timer - 1;
           if (newTimer <= 0) {
             gameOver = true;
