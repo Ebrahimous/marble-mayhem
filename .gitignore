@@ -7,3 +7,10 @@ web-build/
 
 # Local deploy credentials (not committed)
 .deploy/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
