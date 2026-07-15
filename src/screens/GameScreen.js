@@ -2373,9 +2373,11 @@ export default function GameScreen({ navigation, route }) {
         )}
 
         {/* Streak / combo indicator — shown when the player has a consecutive matching streak */}
-        {isSolo && streakCombo >= 2 && (
+        {isSolo && (
           <View style={styles.streakRow}>
-            <Text style={styles.streakTxt}>🔥 ×{streakCombo} STREAK</Text>
+            <Text style={[styles.streakTxt, streakCombo < 2 && { opacity: 0 }]}>
+              🔥 ×{Math.max(streakCombo, 2)} STREAK
+            </Text>
           </View>
         )}
 
@@ -2977,7 +2979,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 3,
+    height: 24,
   },
   streakTxt: {
     color: '#FF9B2E',
