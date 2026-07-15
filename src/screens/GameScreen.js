@@ -832,6 +832,27 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
     const prevMap = new Map();
     forEachCell(prev, (ball, row, col) => prevMap.set(ball.id, { row, col }));
 
+    // Full-board replacement (RESET / Play Again / New Game): no ball id
+    // survives. Re-seed silently — no ghosts, no spawn sfx, no tweens.
+    let anySurvivor = false;
+    forEachCell(board, (ball) => { if (prevMap.has(ball.id)) anySurvivor = true; });
+    if (!anySurvivor && prevMap.size > 0) {
+      animsRef.current.clear();
+      forEachCell(board, (ball, row, col) => {
+        animsRef.current.set(ball.id, {
+          top: new Animated.Value(row * cellSize),
+          left: new Animated.Value(col * cellSize),
+          scaleY: new Animated.Value(1),
+          opacity: new Animated.Value(1),
+          type: ball.type,
+          row, col,
+        });
+      });
+      setGhosts([]);
+      setPopups([]);
+      return;
+    }
+
     const seen = new Set();
     const moves = [];
     const bounces = []; // scaleY values that should play a landing bounce
