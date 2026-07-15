@@ -6,7 +6,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "deploy": "npx expo export -p web && wrangler deploy",
+    "preview": "npx expo export -p web && wrangler dev"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.1.0",
@@ -23,7 +25,8 @@
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.0"
+    "@babel/core": "^7.25.0",
+    "wrangler": "^4.111.0"
   },
   "private": true
 }
