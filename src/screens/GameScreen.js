@@ -906,7 +906,7 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
             entry.top.setValue(targetTop);
             entry.left.setValue(enteringFromRight ? boardWidth : -cellSize);
             moves.push(
-              Animated.timing(entry.left, { toValue: targetLeft, duration: colWrap ? 80 : FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
+              Animated.timing(entry.left, { toValue: targetLeft, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
             );
           } else if (isColWrap) {
             // Stop any in-flight animation before repositioning.
@@ -918,17 +918,8 @@ function useBallAnimations(board, cellSize, dragInfo, lastMatch, colWrap, powerU
             entry.left.setValue(targetLeft);
             entry.top.setValue(enteringFromBelow ? boardHeight : -cellSize);
             moves.push(
-              Animated.timing(entry.top, { toValue: targetTop, duration: 80, easing: SLIDE_EASING, useNativeDriver: false })
+              Animated.timing(entry.top, { toValue: targetTop, duration: FALL_DURATION, easing: SLIDE_EASING, useNativeDriver: false })
             );
-          } else if (colWrap) {
-            // RELAX continuous scroll: snap instantly instead of animating.
-            // FALL_DURATION is 220ms but swipe events fire every ~11ms at 90 Hz,
-            // so stacking 20 simultaneous Animated.timing calls on the same value
-            // causes them to race and produce visual overlaps. setValue is atomic.
-            entry.top.stopAnimation();
-            entry.left.stopAnimation();
-            entry.top.setValue(targetTop);
-            entry.left.setValue(targetLeft);
           } else {
             // Existing ball moved (gravity / slide) — slide to its new cell.
             moves.push(Animated.parallel([
@@ -1445,9 +1436,6 @@ const BoardWithControls = React.memo(({
 
       // Live-follow: as the finger moves, translate the dragged column (or
       // main row) so it visually tracks the touch.
-      // RELAX mode: continuous scroll — dispatch a COL_SLIDE / ROW_SLIDE for
-      // every full cell crossed; show only the fractional remainder as dragOffset.
-      // Normal modes: clamp offset to one cell, dispatch only on release.
       onPanResponderMove: (_, g) => {
         if (cbRef.current.disabled) return;
         const cs = cbRef.current.cellSize;
@@ -1457,7 +1445,7 @@ const BoardWithControls = React.memo(({
 
 
 
-        // ── Normal (non-RELAX) one-step visual preview ────────────────────
+        // Determine drag axis on first significant movement
         if (!dragAxisRef.current) {
           if (Math.max(absX, absY) < 6) return;
           if (absY >= absX) {
