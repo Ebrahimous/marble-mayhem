@@ -166,19 +166,25 @@ function applySlide(state, playerIdx, slidedBoard) {
     usesRelaxMechanics(state.mode) ? resolveMatchesRelax(slidedBoard) : settleBoard(slidedBoard);
   boards[playerIdx] = settled;
 
+  // Hoisted so the mayhem power-up block below can apply the same combo/×2
+  // multipliers to blast points (see Bug 5 fix): PUs are only ever consumed
+  // when a match occurred, so cleared > 0 holds whenever the PU block does work.
+  let multiplier = 1;
+  let puMult = 1;
+
   if (cleared > 0) {
     // Consecutive matching moves build a combo streak (resets on a move
     // that clears nothing); each combo step adds +25% score, capped at
     // +100% from combo 5 onward.
     combos[playerIdx] = (combos[playerIdx] ?? 0) + 1;
     const combo = combos[playerIdx];
-    const multiplier = 1 + Math.min(combo - 1, 4) * 0.25;
+    multiplier = 1 + Math.min(combo - 1, 4) * 0.25;
 
     // rawScore already accounts for match-size (3/4/5) scaling — see
     // resolveMatches() / MATCH_SIZE_BONUS in constants.js.
     const rawGain = rawScore + (chains > 1 ? (chains - 1) * CHAIN_BONUS : 0);
     // 2× multiplier power-up stacks with the combo multiplier
-    const puMult = (state.mode === 'mayhem' && (state.multiplierLeft ?? 0) > 0) ? 2 : 1;
+    puMult = (state.mode === 'mayhem' && (state.multiplierLeft ?? 0) > 0) ? 2 : 1;
     const gain = Math.round(rawGain * multiplier * puMult);
     scores[playerIdx] += gain;
 
@@ -272,8 +278,8 @@ function applySlide(state, playerIdx, slidedBoard) {
               destroyedKeys.add(key);
               const ball = blastBoard[r][c];
               if (!ball) continue;
-              // Every ball destroyed by the blast earns score
-              scores[playerIdx] += SCORE_PER_BALL;
+              // Every ball destroyed by the blast earns score (combo/×2
+              // multipliers applied once at the end — see blastGain below)
               blastGain += SCORE_PER_BALL;
               // If it's a power-up ball, trigger its effect
               if (newPowerUps[ball.id]) {
@@ -293,7 +299,7 @@ function applySlide(state, playerIdx, slidedBoard) {
                     const lKey = `${lr},${c}`;
                     if (!destroyedKeys.has(lKey)) {
                       destroyedKeys.add(lKey);
-                      if (blastBoard[lr][c]) { scores[playerIdx] += SCORE_PER_BALL; blastGain += SCORE_PER_BALL; }
+                      if (blastBoard[lr][c]) { blastGain += SCORE_PER_BALL; }
                     }
                   }
                 } else if (chainPu.type === 'colorbomb') {
@@ -305,7 +311,7 @@ function applySlide(state, playerIdx, slidedBoard) {
                         const cbKey = `${cbR},${cbC}`;
                         if (!destroyedKeys.has(cbKey)) {
                           destroyedKeys.add(cbKey);
-                          scores[playerIdx] += SCORE_PER_BALL; blastGain += SCORE_PER_BALL;
+                          blastGain += SCORE_PER_BALL;
                         }
                       }
                     }
@@ -333,8 +339,7 @@ function applySlide(state, playerIdx, slidedBoard) {
         }
         const { board: blastSettled, rawScore: blastRaw } = resolveMatchesRelax(blasted);
         blastBoard = blastSettled;
-        scores[playerIdx] += blastRaw; // bonus from any chain matches formed after blast
-        blastGain += blastRaw;
+        blastGain += blastRaw; // bonus from any chain matches formed after blast
 
       } else if (pu.type === 'tbomb') {
         // Defused! Increment so GameScreen's useEffect can play the triumph sound.
@@ -369,7 +374,6 @@ function applySlide(state, playerIdx, slidedBoard) {
           if (!lightBoard[r][lCol]) { const b = makeBall(); b.spawnSide = 'top'; lightBoard[r][lCol] = b; }
         }
         blastBoard = lightBoard;
-        scores[playerIdx] += bonus;
         blastGain += bonus;
 
       } else if (pu.type === 'multiplier') {
@@ -404,16 +408,17 @@ function applySlide(state, playerIdx, slidedBoard) {
           }
         }
         blastBoard = cbBoard;
-        scores[playerIdx] += bonus;
         blastGain += bonus;
       }
     }
 
     boards[playerIdx] = blastBoard;
     powerUps = newPowerUps;
-    // Update the popup to show the full score (match + blast)
-    if (blastGain > 0 && lastMatch) {
-      lastMatch = { ...lastMatch, gain: lastMatch.gain + blastGain };
+    // Apply combo + ×2 multipliers to blast points, once, at the end
+    if (blastGain > 0) {
+      const blastTotal = Math.round(blastGain * multiplier * puMult);
+      scores[playerIdx] += blastTotal;
+      if (lastMatch) lastMatch = { ...lastMatch, gain: lastMatch.gain + blastTotal };
     }
   }
 
